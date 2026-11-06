@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -45,6 +47,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +60,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -110,6 +115,10 @@ fun CodeEditorScreen(
   var showDiffDialog by remember { mutableStateOf(false) }
   var showPreviewDialog by remember { mutableStateOf(false) }
   var showSnippetsDialog by remember { mutableStateOf(false) }
+  var showFuzzySearchDialog by remember { mutableStateOf(false) }
+  var selectedSymbolSet by remember { mutableStateOf("General") }
+  var customSymbols by remember { mutableStateOf(listOf<String>()) }
+  var showAddSymbolDialog by remember { mutableStateOf(false) }
 
   val isPreviewable = activeFile?.let {
     it.name.endsWith(".html", ignoreCase = true) ||
@@ -240,6 +249,19 @@ fun CodeEditorScreen(
           )
         }
 
+        // Fuzzy Search Quick Open Button
+        IconButton(
+          onClick = { showFuzzySearchDialog = true },
+          modifier = Modifier.size(32.dp).testTag("fuzzy_search_button")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Quick Open (Fuzzy Search)",
+            tint = LanternNeonGreen,
+            modifier = Modifier.size(18.dp)
+          )
+        }
+
         // Live Web Preview Button
         IconButton(
           onClick = { showPreviewDialog = true },
@@ -293,13 +315,14 @@ fun CodeEditorScreen(
     if (openTabs.isNotEmpty()) {
       val rawIndex = openTabs.indexOfFirst { it.id == activeFile?.id }
       val safeIndex = if (rawIndex >= 0) rawIndex.coerceIn(0, openTabs.size - 1) else 0
-      ScrollableTabRow(
-        selectedTabIndex = safeIndex,
-        containerColor = LanternObsidianCard.copy(alpha = 0.8f),
-        contentColor = LanternNeonGreen,
-        edgePadding = 8.dp,
-        modifier = Modifier.fillMaxWidth()
-      ) {
+      androidx.compose.runtime.key(openTabs.size, activeFile?.id) {
+        ScrollableTabRow(
+          selectedTabIndex = safeIndex,
+          containerColor = LanternObsidianCard.copy(alpha = 0.8f),
+          contentColor = LanternNeonGreen,
+          edgePadding = 8.dp,
+          modifier = Modifier.fillMaxWidth()
+        ) {
         openTabs.forEach { tabFile ->
           val isSelected = tabFile.id == activeFile?.id
           Tab(
@@ -337,6 +360,7 @@ fun CodeEditorScreen(
         }
       }
     }
+  }
 
     // File Tree Drawer Overlay
     AnimatedVisibility(visible = isFileTreeOpen) {
@@ -473,6 +497,10 @@ fun CodeEditorScreen(
         } else {
           val verticalScrollState = rememberScrollState()
           val horizontalScrollState = rememberScrollState()
+          LaunchedEffect(activeFile?.id) {
+            verticalScrollState.scrollTo(0)
+            horizontalScrollState.scrollTo(0)
+          }
           val lines = editorContent.lines()
           val lineCount = maxOf(1, lines.size)
 
@@ -547,33 +575,85 @@ fun CodeEditorScreen(
       }
     }
 
-    // Quick Code Syntax Helper Toolbar
-    val syntaxShortcuts = listOf("{ }", "( )", "[ ]", "->", "::", "val", "fun", "class", ";", "=", "==", "!= ", "\"\"", "/* */")
-    LazyRow(
+    // Quick Code Syntax Helper Toolbar (Always on top of keyboard via imePadding & configurable symbol sets)
+    val baseShortcuts = when (selectedSymbolSet) {
+      "General" -> listOf("{ }", "( )", "[ ]", ";", "=", "\"", "'")
+      "Operators" -> listOf("->", "::", "==", "!=", "&&", "||", "+=", "-=")
+      "Web" -> listOf("<tag>", "</>", "class=", "href=", "id=", "<div>")
+      "Python" -> listOf("def ", "lambda", "async", "await", "import ", "print()")
+      else -> listOf("{ }", "( )", "[ ]")
+    }
+    val syntaxShortcuts = baseShortcuts + customSymbols
+
+    Column(
       modifier = Modifier
         .fillMaxWidth()
+        .imePadding()
         .background(LanternObsidianCard)
-        .padding(horizontal = 8.dp, vertical = 6.dp),
-      horizontalArrangement = Arrangement.spacedBy(6.dp)
+        .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-      items(syntaxShortcuts) { symbol ->
-        Box(
-          modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(LanternObsidianBorder)
-            .clickable {
-              val current = editorContent
-              viewModel.updateEditorContent(current + symbol)
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+          val sets = listOf("General", "Operators", "Web", "Python")
+          items(sets) { setName ->
+            val isSelected = selectedSymbolSet == setName
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (isSelected) LanternNeonGreen.copy(alpha = 0.2f) else Color.Transparent)
+                .clickable { selectedSymbolSet = setName }
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = setName,
+                fontSize = 10.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) LanternNeonGreen else LanternTextMuted
+              )
             }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+          }
+        }
+
+        IconButton(
+          onClick = { showAddSymbolDialog = true },
+          modifier = Modifier.size(24.dp).testTag("add_custom_symbol_button")
         ) {
-          Text(
-            text = symbol,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = LanternBrightGreen,
-            fontWeight = FontWeight.Bold
+          Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = "Add Symbol",
+            tint = LanternNeonGreen,
+            modifier = Modifier.size(16.dp)
           )
+        }
+      }
+
+      LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        items(syntaxShortcuts) { symbol ->
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(LanternObsidianBorder)
+              .clickable {
+                val current = editorContent
+                viewModel.updateEditorContent(current + symbol)
+              }
+              .padding(horizontal = 10.dp, vertical = 6.dp)
+          ) {
+            Text(
+              text = symbol,
+              fontSize = 11.sp,
+              fontFamily = FontFamily.Monospace,
+              color = LanternBrightGreen,
+              fontWeight = FontWeight.Bold
+            )
+          }
         }
       }
     }
@@ -739,9 +819,10 @@ fun CodeEditorScreen(
 
   if (showCommitDialog) {
     CommitGitDialog(
+      files = files,
       onDismiss = { showCommitDialog = false },
-      onCommit = { msg ->
-        viewModel.commitGitChanges(msg)
+      onCommit = { msg, staged ->
+        viewModel.commitGitChanges("$msg [staged: ${staged.joinToString(",")}]")
         showCommitDialog = false
       }
     )
@@ -781,6 +862,27 @@ fun CodeEditorScreen(
         showSnippetsDialog = false
       },
       onDismiss = { showSnippetsDialog = false }
+    )
+  }
+
+  if (showFuzzySearchDialog) {
+    FuzzySearchFilesDialog(
+      files = files,
+      onFileSelected = { file ->
+        viewModel.openFile(file)
+        showFuzzySearchDialog = false
+      },
+      onDismiss = { showFuzzySearchDialog = false }
+    )
+  }
+
+  if (showAddSymbolDialog) {
+    AddCustomSymbolDialog(
+      onDismiss = { showAddSymbolDialog = false },
+      onAdd = { newSymbol ->
+        customSymbols = customSymbols + newSymbol
+        showAddSymbolDialog = false
+      }
     )
   }
 }
@@ -919,43 +1021,340 @@ fun NewFileDialog(
 
 @Composable
 fun CommitGitDialog(
+  files: List<ProjectFileEntity>,
   onDismiss: () -> Unit,
-  onCommit: (message: String) -> Unit
+  onCommit: (message: String, stagedFiles: List<String>) -> Unit
 ) {
   var commitMsg by remember { mutableStateOf("") }
+  var stagedPaths by remember { mutableStateOf(files.map { it.path }.toSet()) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
-    title = { Text("Commit Changes to Git", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+    containerColor = LanternObsidianCard,
+    title = {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Difference, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Git Stage & Commit", color = LanternBrightGreen, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+      }
+    },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(340.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
         Text(
-          text = "Stage all modified files and record commit in SQLite Git history.",
+          text = "Select files to stage and enter commit message:",
           style = MaterialTheme.typography.bodySmall.copy(color = LanternTextSecondary)
         )
+
+        Card(
+          modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f),
+          colors = CardDefaults.cardColors(containerColor = CodeEditorBg),
+          shape = RoundedCornerShape(8.dp),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(LanternObsidianBorder))
+        ) {
+          LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+          ) {
+            items(files) { file ->
+              val isStaged = stagedPaths.contains(file.path)
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clip(RoundedCornerShape(6.dp))
+                  .background(if (isStaged) LanternNeonGreen.copy(alpha = 0.1f) else Color.Transparent)
+                  .clickable {
+                    stagedPaths = if (isStaged) {
+                      stagedPaths - file.path
+                    } else {
+                      stagedPaths + file.path
+                    }
+                  }
+                  .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                  Checkbox(
+                    checked = isStaged,
+                    onCheckedChange = { checked ->
+                      stagedPaths = if (checked) stagedPaths + file.path else stagedPaths - file.path
+                    },
+                    colors = CheckboxDefaults.colors(
+                      checkedColor = LanternNeonGreen,
+                      uncheckedColor = LanternTextMuted,
+                      checkmarkColor = Color(0xFF003D1A)
+                    ),
+                    modifier = Modifier.size(24.dp).testTag("checkbox_${file.name}")
+                  )
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text(
+                    text = file.path,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (isStaged) LanternNeonGreen else LanternTextPrimary,
+                    maxLines = 1
+                  )
+                }
+                Text(
+                  text = if (file.isModified) "M" else " ",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (file.isModified) LanternCyan else LanternTextMuted
+                )
+              }
+            }
+          }
+        }
+
         OutlinedTextField(
           value = commitMsg,
           onValueChange = { commitMsg = it },
           label = { Text("Commit Message") },
-          placeholder = { Text("feat: implement peer synchronization") },
-          modifier = Modifier.fillMaxWidth().testTag("commit_message_field")
+          placeholder = { Text("feat: implement git staging UI") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth().testTag("commit_message_field"),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = LanternNeonGreen,
+            unfocusedBorderColor = LanternObsidianBorder,
+            focusedTextColor = LanternTextPrimary,
+            unfocusedTextColor = LanternTextPrimary,
+            cursorColor = LanternNeonGreen
+          )
         )
       }
     },
     confirmButton = {
       Button(
         onClick = {
-          if (commitMsg.isNotBlank()) onCommit(commitMsg.trim())
+          if (commitMsg.isNotBlank() && stagedPaths.isNotEmpty()) {
+            onCommit(commitMsg.trim(), stagedPaths.toList())
+          }
         },
-        colors = ButtonDefaults.buttonColors(containerColor = LanternCyan, contentColor = Color(0xFF002F48)),
+        enabled = commitMsg.isNotBlank() && stagedPaths.isNotEmpty(),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = LanternNeonGreen,
+          contentColor = Color(0xFF003D1A),
+          disabledContainerColor = LanternObsidianBorder,
+          disabledContentColor = LanternTextMuted
+        ),
         modifier = Modifier.testTag("confirm_commit_button")
       ) {
-        Text("Commit", fontWeight = FontWeight.Bold)
+        Text("Commit (${stagedPaths.size} staged)", fontWeight = FontWeight.Bold)
       }
     },
     dismissButton = {
       TextButton(onClick = onDismiss) { Text("Cancel", color = LanternTextSecondary) }
-    },
-    containerColor = LanternObsidianCard
+    }
   )
 }
+
+@Composable
+fun FuzzySearchFilesDialog(
+  files: List<com.example.data.entity.ProjectFileEntity>,
+  onFileSelected: (com.example.data.entity.ProjectFileEntity) -> Unit,
+  onDismiss: () -> Unit
+) {
+  var query by remember { mutableStateOf("") }
+
+  val matchingFiles = remember(query, files) {
+    if (query.isBlank()) {
+      files
+    } else {
+      files.map { file ->
+        val score = fuzzyMatchScore(query, file.path)
+        file to score
+      }.filter { it.second >= 0 }
+       .sortedByDescending { it.second }
+       .map { it.first }
+    }
+  }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = LanternObsidianCard,
+    title = {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Search, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Quick Open (Fuzzy Search)", color = LanternBrightGreen, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+      }
+    },
+    text = {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(320.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        OutlinedTextField(
+          value = query,
+          onValueChange = { query = it },
+          placeholder = { Text("Type file name or path (e.g., MainActivity, index.html)...", fontSize = 12.sp, color = LanternTextMuted) },
+          singleLine = true,
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("fuzzy_search_input"),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = LanternNeonGreen,
+            unfocusedBorderColor = LanternObsidianBorder,
+            focusedTextColor = LanternTextPrimary,
+            unfocusedTextColor = LanternTextPrimary,
+            cursorColor = LanternNeonGreen
+          ),
+          textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        )
+
+        Text(
+          text = "${matchingFiles.size} matching files",
+          fontSize = 11.sp,
+          color = LanternTextMuted
+        )
+
+        if (matchingFiles.isEmpty()) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .weight(1f),
+            contentAlignment = Alignment.Center
+          ) {
+            Text("No files found matching '$query'", fontSize = 12.sp, color = LanternTextMuted)
+          }
+        } else {
+          LazyColumn(
+            modifier = Modifier
+              .fillMaxWidth()
+              .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+          ) {
+            items(matchingFiles) { file ->
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clip(RoundedCornerShape(6.dp))
+                  .background(LanternObsidianBorder.copy(alpha = 0.3f))
+                  .clickable { onFileSelected(file) }
+                  .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  modifier = Modifier.weight(1f)
+                ) {
+                  Icon(
+                    imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                    contentDescription = null,
+                    tint = LanternCyan,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text(
+                    text = file.path,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = LanternTextPrimary,
+                    maxLines = 1
+                  )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                  modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(LanternNeonGreen.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = file.language,
+                    fontSize = 10.sp,
+                    color = LanternNeonGreen
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onDismiss) {
+        Text("Close", color = LanternTextMuted)
+      }
+    }
+  )
+}
+
+fun fuzzyMatchScore(query: String, target: String): Int {
+  if (query.isEmpty()) return 1
+  val q = query.lowercase()
+  val t = target.lowercase()
+  if (t.contains(q)) return 100 + (t.length - q.length)
+
+  var qIdx = 0
+  var score = 0
+  for (i in t.indices) {
+    if (qIdx < q.length && t[i] == q[qIdx]) {
+      score += (10 - i.coerceAtMost(9))
+      qIdx++
+    }
+  }
+  return if (qIdx == q.length) score else -1
+}
+
+@Composable
+fun AddCustomSymbolDialog(
+  onDismiss: () -> Unit,
+  onAdd: (String) -> Unit
+) {
+  var symbolText by remember { mutableStateOf("") }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = LanternObsidianCard,
+    title = { Text("Add Custom Symbol / Snippet", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+          value = symbolText,
+          onValueChange = { symbolText = it },
+          label = { Text("Symbol or Snippet") },
+          placeholder = { Text("e.g. console.log() or val x = ") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth().testTag("custom_symbol_input"),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = LanternNeonGreen,
+            unfocusedBorderColor = LanternObsidianBorder,
+            focusedTextColor = LanternTextPrimary,
+            unfocusedTextColor = LanternTextPrimary,
+            cursorColor = LanternNeonGreen
+          )
+        )
+      }
+    },
+    confirmButton = {
+      Button(
+        onClick = {
+          if (symbolText.isNotBlank()) {
+            onAdd(symbolText.trim())
+          }
+        },
+        colors = ButtonDefaults.buttonColors(
+          containerColor = LanternNeonGreen,
+          contentColor = Color(0xFF003D1A)
+        ),
+        modifier = Modifier.testTag("confirm_add_symbol_button")
+      ) {
+        Text("Add", fontWeight = FontWeight.Bold)
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) { Text("Cancel", color = LanternTextSecondary) }
+    }
+  )
+}
+

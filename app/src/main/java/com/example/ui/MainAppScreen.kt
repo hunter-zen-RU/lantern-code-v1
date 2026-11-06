@@ -30,11 +30,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.LanternBrightGreen
+import com.example.ui.theme.LanternNeonGreen
+import com.example.ui.theme.LanternObsidianBorder
+import com.example.ui.theme.LanternObsidianCard
+import com.example.ui.theme.LanternTextMuted
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.screens.AuditAndTestScreen
 import com.example.ui.screens.CodeEditorScreen
@@ -86,38 +98,40 @@ fun MainAppScreen(
       .statusBarsPadding(),
     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     bottomBar = {
-      NavigationBar(
+      Box(
         modifier = Modifier
+          .fillMaxWidth()
           .navigationBarsPadding()
-          .testTag("main_bottom_nav_bar"),
-        containerColor = LanternObsidianCard,
-        contentColor = LanternNeonGreen
+          .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
       ) {
-        NavDestination.values().forEach { dest ->
-          val isSelected = currentTab == dest
-          NavigationBarItem(
-            selected = isSelected,
-            onClick = { currentTab = dest },
-            icon = {
-              Icon(
-                imageVector = dest.icon,
-                contentDescription = dest.label,
-                tint = if (isSelected) LanternNeonGreen else LanternTextMuted
-              )
-            },
-            label = {
-              Text(
-                text = dest.label,
-                fontSize = 10.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = if (isSelected) LanternBrightGreen else LanternTextMuted
-              )
-            },
-            colors = NavigationBarItemDefaults.colors(
-              indicatorColor = LanternNeonGreen.copy(alpha = 0.2f)
-            ),
-            modifier = Modifier.testTag("nav_item_${dest.name.lowercase()}")
-          )
+        NavigationBar(
+          modifier = Modifier
+            .widthIn(max = 380.dp)
+            .clip(RoundedCornerShape(32.dp))
+            .border(1.dp, LanternObsidianBorder, RoundedCornerShape(32.dp))
+            .testTag("main_bottom_nav_bar"),
+          containerColor = LanternObsidianCard,
+          contentColor = LanternNeonGreen
+        ) {
+          NavDestination.values().forEach { dest ->
+            val isSelected = currentTab == dest
+            NavigationBarItem(
+              selected = isSelected,
+              onClick = { currentTab = dest },
+              icon = {
+                Icon(
+                  imageVector = dest.icon,
+                  contentDescription = dest.label,
+                  tint = if (isSelected) LanternNeonGreen else LanternTextMuted
+                )
+              },
+              colors = NavigationBarItemDefaults.colors(
+                indicatorColor = LanternNeonGreen.copy(alpha = 0.2f)
+              ),
+              modifier = Modifier.testTag("nav_item_${dest.name.lowercase()}")
+            )
+          }
         }
       }
     }
