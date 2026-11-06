@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -60,6 +63,10 @@ import com.example.ui.theme.LanternNeonGreen
 import com.example.ui.theme.LanternObsidianCard
 import com.example.ui.theme.LanternTextMuted
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+
 enum class NavDestination(val label: String, val icon: ImageVector) {
   WORKSPACES("Workspaces", Icons.Default.Folder),
   STUDIO("Studio", Icons.Default.Code),
@@ -79,6 +86,7 @@ fun MainAppScreen(
 
   val snackbarHostState = remember { SnackbarHostState() }
   val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
+  val isKeyboardVisible = WindowInsets.isImeVisible
 
   // Handle Back press: navigate back to WORKSPACES if in subscreen
   BackHandler(enabled = currentTab != NavDestination.WORKSPACES) {
@@ -95,42 +103,45 @@ fun MainAppScreen(
   Scaffold(
     modifier = modifier
       .fillMaxSize()
-      .statusBarsPadding(),
+      .then(if (!isKeyboardVisible || currentTab != NavDestination.STUDIO) Modifier.statusBarsPadding() else Modifier),
+    contentWindowInsets = WindowInsets(0, 0, 0, 0),
     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     bottomBar = {
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .navigationBarsPadding()
-          .padding(horizontal = 24.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
-      ) {
-        NavigationBar(
+      if (!isKeyboardVisible) {
+        Box(
           modifier = Modifier
-            .widthIn(max = 380.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .border(1.dp, LanternObsidianBorder, RoundedCornerShape(32.dp))
-            .testTag("main_bottom_nav_bar"),
-          containerColor = LanternObsidianCard,
-          contentColor = LanternNeonGreen
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+          contentAlignment = Alignment.Center
         ) {
-          NavDestination.values().forEach { dest ->
-            val isSelected = currentTab == dest
-            NavigationBarItem(
-              selected = isSelected,
-              onClick = { currentTab = dest },
-              icon = {
-                Icon(
-                  imageVector = dest.icon,
-                  contentDescription = dest.label,
-                  tint = if (isSelected) LanternNeonGreen else LanternTextMuted
-                )
-              },
-              colors = NavigationBarItemDefaults.colors(
-                indicatorColor = LanternNeonGreen.copy(alpha = 0.2f)
-              ),
-              modifier = Modifier.testTag("nav_item_${dest.name.lowercase()}")
-            )
+          NavigationBar(
+            modifier = Modifier
+              .widthIn(max = 380.dp)
+              .clip(RoundedCornerShape(32.dp))
+              .border(1.dp, LanternObsidianBorder, RoundedCornerShape(32.dp))
+              .testTag("main_bottom_nav_bar"),
+            containerColor = LanternObsidianCard,
+            contentColor = LanternNeonGreen
+          ) {
+            NavDestination.values().forEach { dest ->
+              val isSelected = currentTab == dest
+              NavigationBarItem(
+                selected = isSelected,
+                onClick = { currentTab = dest },
+                icon = {
+                  Icon(
+                    imageVector = dest.icon,
+                    contentDescription = dest.label,
+                    tint = if (isSelected) LanternNeonGreen else LanternTextMuted
+                  )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                  indicatorColor = Color.Transparent
+                ),
+                modifier = Modifier.testTag("nav_item_${dest.name.lowercase()}")
+              )
+            }
           }
         }
       }
@@ -139,7 +150,7 @@ fun MainAppScreen(
     Box(
       modifier = Modifier
         .fillMaxSize()
-        .padding(paddingValues)
+        .padding(if (!isKeyboardVisible) paddingValues else PaddingValues(0.dp))
         .background(MaterialTheme.colorScheme.background)
     ) {
       when (currentTab) {

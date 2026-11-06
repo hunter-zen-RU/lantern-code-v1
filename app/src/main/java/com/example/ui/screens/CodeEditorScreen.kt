@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
@@ -13,8 +15,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +44,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
@@ -62,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,6 +82,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ai.AuditSeverity
+import com.example.ai.ProjectAuditor
 import com.example.data.entity.ProjectFileEntity
 import com.example.ui.WorkspaceViewModel
 import com.example.ui.components.CodeSyntaxVisualTransformation
@@ -119,6 +127,8 @@ fun CodeEditorScreen(
   var selectedSymbolSet by remember { mutableStateOf("General") }
   var customSymbols by remember { mutableStateOf(listOf<String>()) }
   var showAddSymbolDialog by remember { mutableStateOf(false) }
+  var showGoToLineDialog by remember { mutableStateOf(false) }
+  var activeLineNumber by remember { mutableIntStateOf(1) }
 
   val isPreviewable = activeFile?.let {
     it.name.endsWith(".html", ignoreCase = true) ||
@@ -129,156 +139,95 @@ fun CodeEditorScreen(
       it.name.endsWith(".js", ignoreCase = true)
   } ?: false
 
+  val isImeVisible = WindowInsets.isImeVisible
+
   Column(
     modifier = modifier
       .fillMaxSize()
       .background(CodeEditorBg)
   ) {
-    // Editor Header Bar
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .background(LanternObsidianCard)
-        .padding(horizontal = 8.dp, vertical = 6.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
+    if (isImeVisible) {
+      // EDIT MODE ENGINE TOP BAR (Keyboard active: No status bar, no header clutter, showing open files tabs)
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(LanternObsidianCard)
+          .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
         IconButton(
           onClick = { isFileTreeOpen = !isFileTreeOpen },
-          modifier = Modifier.testTag("toggle_file_tree_button")
+          modifier = Modifier.size(32.dp).testTag("toggle_file_tree_button_edit_mode")
         ) {
           Icon(
             imageVector = Icons.Default.Menu,
             contentDescription = "Toggle Files",
-            tint = LanternNeonGreen
-          )
-        }
-
-        Text(
-          text = selectedProject?.name ?: "LANtern Studio",
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontWeight = FontWeight.Bold,
-            color = LanternBrightGreen
-          ),
-          maxLines = 1
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Branch pill
-        Box(
-          modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(LanternCyan.copy(alpha = 0.15f))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-        ) {
-          Text(
-            text = selectedProject?.currentBranch ?: "main",
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            color = LanternCyan
-          )
-        }
-
-        // Inline Code / Preview toggle switch if previewable
-        if (isPreviewable) {
-          Spacer(modifier = Modifier.width(8.dp))
-          Row(
-            modifier = Modifier
-              .clip(RoundedCornerShape(6.dp))
-              .background(LanternObsidianBorder)
-              .padding(2.dp)
-          ) {
-            Box(
-              modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(if (!isPreviewTabActive) LanternNeonGreen else Color.Transparent)
-                .clickable { isPreviewTabActive = false }
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-              Text(
-                text = "Code",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (!isPreviewTabActive) Color(0xFF003D1A) else LanternTextSecondary
-              )
-            }
-            Box(
-              modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(if (isPreviewTabActive) LanternCyan else Color.Transparent)
-                .clickable { isPreviewTabActive = true }
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-              Text(
-                text = "Preview",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isPreviewTabActive) Color(0xFF002F48) else LanternTextSecondary
-              )
-            }
-          }
-        }
-      }
-
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        // Snippets Button
-        IconButton(
-          onClick = { showSnippetsDialog = true },
-          modifier = Modifier.size(32.dp).testTag("snippets_palette_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.DataObject,
-            contentDescription = "Snippets Palette",
-            tint = LanternCyan,
-            modifier = Modifier.size(18.dp)
-          )
-        }
-
-        // Diff Inspector Button
-        IconButton(
-          onClick = { showDiffDialog = true },
-          modifier = Modifier.size(32.dp).testTag("view_git_diff_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Difference,
-            contentDescription = "Git Diff",
-            tint = LanternBrightGreen,
-            modifier = Modifier.size(18.dp)
-          )
-        }
-
-        // Fuzzy Search Quick Open Button
-        IconButton(
-          onClick = { showFuzzySearchDialog = true },
-          modifier = Modifier.size(32.dp).testTag("fuzzy_search_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = "Quick Open (Fuzzy Search)",
             tint = LanternNeonGreen,
             modifier = Modifier.size(18.dp)
           )
         }
 
-        // Live Web Preview Button
-        IconButton(
-          onClick = { showPreviewDialog = true },
-          modifier = Modifier.size(32.dp).testTag("live_preview_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Language,
-            contentDescription = "Live Preview",
-            tint = Color(0xFFA78BFA),
-            modifier = Modifier.size(18.dp)
+        if (openTabs.isNotEmpty()) {
+          val rawIndex = openTabs.indexOfFirst { it.id == activeFile?.id }
+          val safeIndex = if (rawIndex >= 0) rawIndex.coerceIn(0, openTabs.size - 1) else 0
+          androidx.compose.runtime.key(openTabs.size, activeFile?.id) {
+            ScrollableTabRow(
+              selectedTabIndex = safeIndex,
+              containerColor = Color.Transparent,
+              contentColor = LanternNeonGreen,
+              edgePadding = 4.dp,
+              modifier = Modifier.weight(1f)
+            ) {
+              openTabs.forEach { tabFile ->
+                val isSelected = tabFile.id == activeFile?.id
+                Tab(
+                  selected = isSelected,
+                  onClick = { viewModel.openFile(tabFile) },
+                  text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      if (tabFile.isModified) {
+                        Box(
+                          modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(LanternNeonGreen)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                      }
+                      Text(
+                        text = tabFile.name,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (isSelected) LanternNeonGreen else LanternTextSecondary
+                      )
+                      Spacer(modifier = Modifier.width(4.dp))
+                      Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close tab",
+                        modifier = Modifier
+                          .size(12.dp)
+                          .clickable { viewModel.closeTab(tabFile) },
+                        tint = LanternTextMuted
+                      )
+                    }
+                  }
+                )
+              }
+            }
+          }
+        } else {
+          Text(
+            text = activeFile?.name ?: "Edit Mode",
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            color = LanternBrightGreen,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
           )
         }
 
-        // Save Button
         IconButton(
           onClick = { viewModel.saveCurrentFile() },
-          modifier = Modifier.size(32.dp).testTag("save_file_button")
+          modifier = Modifier.size(32.dp).testTag("save_file_button_edit_mode")
         ) {
           Icon(
             imageVector = Icons.Default.Save,
@@ -288,79 +237,249 @@ fun CodeEditorScreen(
           )
         }
 
-        // Git Commit Button
-        TextButton(
-          onClick = { showCommitDialog = true },
-          modifier = Modifier.testTag("git_commit_dialog_button")
+        Box(
+          modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(LanternNeonGreen.copy(alpha = 0.2f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-          Text("Commit", color = LanternCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-
-        // AI Vibecode toggle button
-        IconButton(
-          onClick = { isAiDrawerOpen = !isAiDrawerOpen },
-          modifier = Modifier.size(32.dp).testTag("toggle_ai_drawer_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.AutoAwesome,
-            contentDescription = "Vibecoding Assistant",
-            tint = if (isAiDrawerOpen) LanternNeonGreen else LanternBrightGreen,
-            modifier = Modifier.size(18.dp)
+          Text(
+            text = "EDIT",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = LanternNeonGreen
           )
         }
       }
-    }
+    } else {
+      // NORMAL MODE (Full Editor Header Bar)
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(LanternObsidianCard)
+          .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          IconButton(
+            onClick = { isFileTreeOpen = !isFileTreeOpen },
+            modifier = Modifier.testTag("toggle_file_tree_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Menu,
+              contentDescription = "Toggle Files",
+              tint = LanternNeonGreen
+            )
+          }
 
-    // Tabs bar for open files
-    if (openTabs.isNotEmpty()) {
-      val rawIndex = openTabs.indexOfFirst { it.id == activeFile?.id }
-      val safeIndex = if (rawIndex >= 0) rawIndex.coerceIn(0, openTabs.size - 1) else 0
-      androidx.compose.runtime.key(openTabs.size, activeFile?.id) {
-        ScrollableTabRow(
-          selectedTabIndex = safeIndex,
-          containerColor = LanternObsidianCard.copy(alpha = 0.8f),
-          contentColor = LanternNeonGreen,
-          edgePadding = 8.dp,
-          modifier = Modifier.fillMaxWidth()
-        ) {
-        openTabs.forEach { tabFile ->
-          val isSelected = tabFile.id == activeFile?.id
-          Tab(
-            selected = isSelected,
-            onClick = { viewModel.openFile(tabFile) },
-            text = {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                if (tabFile.isModified) {
-                  Box(
-                    modifier = Modifier
-                      .size(6.dp)
-                      .clip(CircleShape)
-                      .background(LanternNeonGreen)
-                  )
-                  Spacer(modifier = Modifier.width(4.dp))
-                }
+          Text(
+            text = selectedProject?.name ?: "LANtern Studio",
+            style = MaterialTheme.typography.titleMedium.copy(
+              fontWeight = FontWeight.Bold,
+              color = LanternBrightGreen
+            ),
+            maxLines = 1
+          )
+
+          Spacer(modifier = Modifier.width(8.dp))
+
+          // Branch pill
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(LanternCyan.copy(alpha = 0.15f))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = selectedProject?.currentBranch ?: "main",
+              fontSize = 10.sp,
+              fontFamily = FontFamily.Monospace,
+              color = LanternCyan
+            )
+          }
+
+          // Inline Code / Preview toggle switch if previewable
+          if (isPreviewable) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Row(
+              modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(LanternObsidianBorder)
+                .padding(2.dp)
+            ) {
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(4.dp))
+                  .background(if (!isPreviewTabActive) LanternNeonGreen else Color.Transparent)
+                  .clickable { isPreviewTabActive = false }
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
                 Text(
-                  text = tabFile.name,
-                  fontSize = 12.sp,
-                  fontFamily = FontFamily.Monospace,
-                  color = if (isSelected) LanternNeonGreen else LanternTextSecondary
+                  text = "Code",
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (!isPreviewTabActive) Color(0xFF003D1A) else LanternTextSecondary
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                  imageVector = Icons.Default.Close,
-                  contentDescription = "Close tab",
-                  modifier = Modifier
-                    .size(14.dp)
-                    .clickable { viewModel.closeTab(tabFile) },
-                  tint = LanternTextMuted
+              }
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(4.dp))
+                  .background(if (isPreviewTabActive) LanternCyan else Color.Transparent)
+                  .clickable { isPreviewTabActive = true }
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
+                Text(
+                  text = "Preview",
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isPreviewTabActive) Color(0xFF002F48) else LanternTextSecondary
                 )
               }
             }
-          )
+          }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          // Snippets Button
+          IconButton(
+            onClick = { showSnippetsDialog = true },
+            modifier = Modifier.size(32.dp).testTag("snippets_palette_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.DataObject,
+              contentDescription = "Snippets Palette",
+              tint = LanternCyan,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Diff Inspector Button
+          IconButton(
+            onClick = { showDiffDialog = true },
+            modifier = Modifier.size(32.dp).testTag("view_git_diff_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Difference,
+              contentDescription = "Git Diff",
+              tint = LanternBrightGreen,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Fuzzy Search Quick Open Button
+          IconButton(
+            onClick = { showFuzzySearchDialog = true },
+            modifier = Modifier.size(32.dp).testTag("fuzzy_search_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Search,
+              contentDescription = "Quick Open (Fuzzy Search)",
+              tint = LanternNeonGreen,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Live Web Preview Button
+          IconButton(
+            onClick = { showPreviewDialog = true },
+            modifier = Modifier.size(32.dp).testTag("live_preview_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Language,
+              contentDescription = "Live Preview",
+              tint = Color(0xFFA78BFA),
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Save Button
+          IconButton(
+            onClick = { viewModel.saveCurrentFile() },
+            modifier = Modifier.size(32.dp).testTag("save_file_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Save,
+              contentDescription = "Save File",
+              tint = if (activeFile?.isModified == true) LanternNeonGreen else LanternTextMuted,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Git Commit Button
+          TextButton(
+            onClick = { showCommitDialog = true },
+            modifier = Modifier.testTag("git_commit_dialog_button")
+          ) {
+            Text("Commit", color = LanternCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+          }
+
+          // AI Vibecode toggle button
+          IconButton(
+            onClick = { isAiDrawerOpen = !isAiDrawerOpen },
+            modifier = Modifier.size(32.dp).testTag("toggle_ai_drawer_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.AutoAwesome,
+              contentDescription = "Vibecoding Assistant",
+              tint = if (isAiDrawerOpen) LanternNeonGreen else LanternBrightGreen,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+        }
+      }
+
+      // Tabs bar for open files in Normal Mode
+      if (openTabs.isNotEmpty()) {
+        val rawIndex = openTabs.indexOfFirst { it.id == activeFile?.id }
+        val safeIndex = if (rawIndex >= 0) rawIndex.coerceIn(0, openTabs.size - 1) else 0
+        androidx.compose.runtime.key(openTabs.size, activeFile?.id) {
+          ScrollableTabRow(
+            selectedTabIndex = safeIndex,
+            containerColor = LanternObsidianCard.copy(alpha = 0.8f),
+            contentColor = LanternNeonGreen,
+            edgePadding = 8.dp,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            openTabs.forEach { tabFile ->
+              val isSelected = tabFile.id == activeFile?.id
+              Tab(
+                selected = isSelected,
+                onClick = { viewModel.openFile(tabFile) },
+                text = {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (tabFile.isModified) {
+                      Box(
+                        modifier = Modifier
+                          .size(6.dp)
+                          .clip(CircleShape)
+                          .background(LanternNeonGreen)
+                      )
+                      Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                      text = tabFile.name,
+                      fontSize = 12.sp,
+                      fontFamily = FontFamily.Monospace,
+                      color = if (isSelected) LanternNeonGreen else LanternTextSecondary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                      imageVector = Icons.Default.Close,
+                      contentDescription = "Close tab",
+                      modifier = Modifier
+                        .size(14.dp)
+                        .clickable { viewModel.closeTab(tabFile) },
+                      tint = LanternTextMuted
+                    )
+                  }
+                }
+              )
+            }
+          }
         }
       }
     }
-  }
 
     // File Tree Drawer Overlay
     AnimatedVisibility(visible = isFileTreeOpen) {
@@ -500,55 +619,146 @@ fun CodeEditorScreen(
           LaunchedEffect(activeFile?.id) {
             verticalScrollState.scrollTo(0)
             horizontalScrollState.scrollTo(0)
+            activeLineNumber = 1
           }
           val lines = editorContent.lines()
           val lineCount = maxOf(1, lines.size)
 
-          Row(
-            modifier = Modifier
-              .fillMaxSize()
-              .verticalScroll(verticalScrollState)
-          ) {
-            // Gutter with line numbers (WRAPS content matching lines, NO fillMaxHeight)
-            Column(
+          val activeFileIssues = remember(activeFile?.content, activeFile?.name) {
+            if (activeFile != null) {
+              ProjectAuditor.auditFiles(selectedProject?.id ?: 0, listOf(activeFile!!)).issues
+            } else emptyList()
+          }
+          val issueLineMap = remember(activeFileIssues) {
+            activeFileIssues.associate { it.lineNumber to it.severity }
+          }
+          val peerCursorLines = roomState?.peers?.map { it.cursorLine } ?: emptyList()
+
+          Column(modifier = Modifier.fillMaxSize()) {
+            Row(
               modifier = Modifier
-                .background(CodeGutterBg)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-              horizontalAlignment = Alignment.End
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(verticalScrollState)
             ) {
-              for (index in 1..lineCount) {
-                Text(
-                  text = "$index",
-                  fontSize = 12.sp,
-                  fontFamily = FontFamily.Monospace,
-                  color = LanternTextMuted,
-                  lineHeight = 20.sp
+              // Custom Editor Gutter Component with Line Numbers, Audit Badges, and Peer Cursors
+              EditorGutter(
+                lineCount = lineCount,
+                activeLine = activeLineNumber,
+                issueLines = issueLineMap,
+                peerCursorLines = peerCursorLines,
+                onLineClick = { clickedLine ->
+                  activeLineNumber = clickedLine
+                }
+              )
+
+              // Editable Code Text with syntax highlighting transformation
+              Box(
+                modifier = Modifier
+                  .weight(1f)
+                  .horizontalScroll(horizontalScrollState)
+                  .padding(8.dp)
+              ) {
+                BasicTextField(
+                  value = editorContent,
+                  onValueChange = { viewModel.updateEditorContent(it) },
+                  visualTransformation = CodeSyntaxVisualTransformation(
+                    language = activeFile?.language ?: "",
+                    fileName = activeFile?.name ?: ""
+                  ),
+                  modifier = Modifier
+                    .widthIn(min = 600.dp)
+                    .testTag("code_editor_text_field"),
+                  textStyle = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    color = LanternTextPrimary,
+                    lineHeight = 20.sp
+                  ),
+                  cursorBrush = androidx.compose.ui.graphics.SolidColor(LanternNeonGreen)
                 )
               }
             }
 
-            // Editable Code Text with syntax highlighting transformation
-            Box(
+            // Editor Status Bar at bottom of code viewport
+            val linesList = editorContent.lines()
+            val activeLineText = if (activeLineNumber in 1..linesList.size) linesList[activeLineNumber - 1] else ""
+            val activeColumnNumber = activeLineText.length + 1
+
+            Row(
               modifier = Modifier
-                .weight(1f)
-                .horizontalScroll(horizontalScrollState)
-                .padding(8.dp)
+                .fillMaxWidth()
+                .background(LanternObsidianCard)
+                .border(width = 1.dp, color = LanternObsidianBorder)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              BasicTextField(
-                value = editorContent,
-                onValueChange = { viewModel.updateEditorContent(it) },
-                visualTransformation = CodeSyntaxVisualTransformation(activeFile?.language ?: "text"),
-                modifier = Modifier
-                  .widthIn(min = 600.dp)
-                  .testTag("code_editor_text_field"),
-                textStyle = TextStyle(
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                  text = "${activeFile?.name ?: ""}  •  ${(activeFile?.language ?: "text").uppercase()}",
+                  fontSize = 10.sp,
                   fontFamily = FontFamily.Monospace,
-                  fontSize = 13.sp,
-                  color = LanternTextPrimary,
-                  lineHeight = 20.sp
-                ),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(LanternNeonGreen)
-              )
+                  color = LanternCyan,
+                  fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                  text = "$lineCount lines  •  ${editorContent.length} chars",
+                  fontSize = 10.sp,
+                  fontFamily = FontFamily.Monospace,
+                  color = LanternTextMuted
+                )
+              }
+
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                if (activeFileIssues.isNotEmpty()) {
+                  Box(
+                    modifier = Modifier
+                      .clip(RoundedCornerShape(4.dp))
+                      .background(Color(0xFFEF4444).copy(alpha = 0.2f))
+                      .clickable { onNavigateToAudit() }
+                      .padding(horizontal = 6.dp, vertical = 2.dp)
+                  ) {
+                    Text(
+                      text = "${activeFileIssues.size} Issues",
+                      fontSize = 9.sp,
+                      fontWeight = FontWeight.Bold,
+                      color = Color(0xFFEF4444)
+                    )
+                  }
+                  Spacer(modifier = Modifier.width(8.dp))
+                }
+
+                Box(
+                  modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(LanternObsidianBorder)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "Ln $activeLineNumber, Col $activeColumnNumber",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = LanternNeonGreen,
+                    fontWeight = FontWeight.Bold
+                  )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(
+                  onClick = { showGoToLineDialog = true },
+                  modifier = Modifier.size(24.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Go to line",
+                    tint = LanternCyan,
+                    modifier = Modifier.size(14.dp)
+                  )
+                }
+              }
             }
           }
         }
@@ -882,6 +1092,18 @@ fun CodeEditorScreen(
       onAdd = { newSymbol ->
         customSymbols = customSymbols + newSymbol
         showAddSymbolDialog = false
+      }
+    )
+  }
+
+  if (showGoToLineDialog) {
+    val lines = editorContent.lines()
+    GoToLineDialog(
+      lineCount = maxOf(1, lines.size),
+      onDismiss = { showGoToLineDialog = false },
+      onGoToLine = { targetLine ->
+        activeLineNumber = targetLine
+        showGoToLineDialog = false
       }
     )
   }
@@ -1357,4 +1579,137 @@ fun AddCustomSymbolDialog(
     }
   )
 }
+
+@Composable
+fun EditorGutter(
+  lineCount: Int,
+  activeLine: Int = -1,
+  issueLines: Map<Int, AuditSeverity> = emptyMap(),
+  peerCursorLines: List<Int> = emptyList(),
+  onLineClick: (Int) -> Unit = {}
+) {
+  val minDigits = when {
+    lineCount >= 1000 -> 4
+    lineCount >= 100 -> 3
+    else -> 2
+  }
+
+  Column(
+    modifier = Modifier
+      .background(CodeGutterBg)
+      .border(
+        width = 1.dp,
+        color = LanternObsidianBorder
+      )
+      .padding(horizontal = 8.dp, vertical = 8.dp),
+    horizontalAlignment = Alignment.End
+  ) {
+    for (line in 1..lineCount) {
+      val isCurrentLine = line == activeLine
+      val issueSeverity = issueLines[line]
+      val hasPeer = peerCursorLines.contains(line)
+
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
+        modifier = Modifier
+          .height(20.dp)
+          .clickable { onLineClick(line) }
+      ) {
+        if (issueSeverity != null) {
+          val dotColor = when (issueSeverity) {
+            AuditSeverity.CRITICAL -> Color(0xFFEF4444)
+            AuditSeverity.WARNING -> Color(0xFFF59E0B)
+            AuditSeverity.INFO -> LanternCyan
+          }
+          Box(
+            modifier = Modifier
+              .size(6.dp)
+              .clip(CircleShape)
+              .background(dotColor)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+        } else if (hasPeer) {
+          Box(
+            modifier = Modifier
+              .size(6.dp)
+              .clip(CircleShape)
+              .background(LanternBrightGreen)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+        }
+
+        Text(
+          text = line.toString().padStart(minDigits, ' '),
+          fontSize = 12.sp,
+          fontFamily = FontFamily.Monospace,
+          fontWeight = if (isCurrentLine) FontWeight.Bold else FontWeight.Normal,
+          color = if (isCurrentLine) LanternNeonGreen else LanternTextMuted,
+          lineHeight = 20.sp
+        )
+      }
+    }
+  }
+}
+
+@Composable
+fun GoToLineDialog(
+  lineCount: Int,
+  onDismiss: () -> Unit,
+  onGoToLine: (Int) -> Unit
+) {
+  var lineInput by remember { mutableStateOf("") }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = LanternObsidianCard,
+    title = {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Search, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Go to Line (1..$lineCount)", color = LanternBrightGreen, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+      }
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+          value = lineInput,
+          onValueChange = { lineInput = it.filter { char -> char.isDigit() } },
+          label = { Text("Target Line Number") },
+          placeholder = { Text("e.g. 12") },
+          singleLine = true,
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("go_to_line_input"),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = LanternNeonGreen,
+            unfocusedBorderColor = LanternObsidianBorder,
+            focusedTextColor = LanternTextPrimary,
+            unfocusedTextColor = LanternTextPrimary,
+            cursorColor = LanternNeonGreen
+          ),
+          textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        )
+      }
+    },
+    confirmButton = {
+      Button(
+        onClick = {
+          val num = lineInput.toIntOrNull()
+          if (num != null && num in 1..lineCount) {
+            onGoToLine(num)
+          }
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
+        modifier = Modifier.testTag("confirm_go_to_line_button")
+      ) {
+        Text("Jump", fontWeight = FontWeight.Bold)
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) { Text("Cancel", color = LanternTextMuted) }
+    }
+  )
+}
+
 
