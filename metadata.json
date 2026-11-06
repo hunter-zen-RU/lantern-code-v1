@@ -1,0 +1,6 @@
+{
+  "name": "LANtern Code",
+  "description": "Collaborative Android IDE with Git & GitHub integration, SQLite workspace storage, WebRTC P2P peer rooms, AI vibecoding, and code audit tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
