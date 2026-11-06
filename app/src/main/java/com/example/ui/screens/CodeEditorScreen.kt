@@ -32,12 +32,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -101,12 +103,22 @@ fun CodeEditorScreen(
 
   var isFileTreeOpen by remember { mutableStateOf(false) }
   var isAiDrawerOpen by remember { mutableStateOf(false) }
+  var isPreviewTabActive by remember { mutableStateOf(false) }
   var aiPromptInput by remember { mutableStateOf("") }
   var showNewFileDialog by remember { mutableStateOf(false) }
   var showCommitDialog by remember { mutableStateOf(false) }
   var showDiffDialog by remember { mutableStateOf(false) }
   var showPreviewDialog by remember { mutableStateOf(false) }
   var showSnippetsDialog by remember { mutableStateOf(false) }
+
+  val isPreviewable = activeFile?.let {
+    it.name.endsWith(".html", ignoreCase = true) ||
+      it.name.endsWith(".htm", ignoreCase = true) ||
+      it.name.endsWith(".md", ignoreCase = true) ||
+      it.name.endsWith(".markdown", ignoreCase = true) ||
+      it.name.endsWith(".css", ignoreCase = true) ||
+      it.name.endsWith(".js", ignoreCase = true)
+  } ?: false
 
   Column(
     modifier = modifier
@@ -158,6 +170,46 @@ fun CodeEditorScreen(
             fontFamily = FontFamily.Monospace,
             color = LanternCyan
           )
+        }
+
+        // Inline Code / Preview toggle switch if previewable
+        if (isPreviewable) {
+          Spacer(modifier = Modifier.width(8.dp))
+          Row(
+            modifier = Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(LanternObsidianBorder)
+              .padding(2.dp)
+          ) {
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (!isPreviewTabActive) LanternNeonGreen else Color.Transparent)
+                .clickable { isPreviewTabActive = false }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = "Code",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (!isPreviewTabActive) Color(0xFF003D1A) else LanternTextSecondary
+              )
+            }
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (isPreviewTabActive) LanternCyan else Color.Transparent)
+                .clickable { isPreviewTabActive = true }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = "Preview",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isPreviewTabActive) Color(0xFF002F48) else LanternTextSecondary
+              )
+            }
+          }
         }
       }
 
@@ -239,8 +291,10 @@ fun CodeEditorScreen(
 
     // Tabs bar for open files
     if (openTabs.isNotEmpty()) {
+      val rawIndex = openTabs.indexOfFirst { it.id == activeFile?.id }
+      val safeIndex = if (rawIndex >= 0) rawIndex.coerceIn(0, openTabs.size - 1) else 0
       ScrollableTabRow(
-        selectedTabIndex = openTabs.indexOfFirst { it.id == activeFile?.id }.coerceAtLeast(0),
+        selectedTabIndex = safeIndex,
         containerColor = LanternObsidianCard.copy(alpha = 0.8f),
         contentColor = LanternNeonGreen,
         edgePadding = 8.dp,
@@ -335,7 +389,7 @@ fun CodeEditorScreen(
               ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                   Icon(
-                    imageVector = Icons.Default.InsertDriveFile,
+                    imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
                     contentDescription = null,
                     tint = if (isCurrent) LanternNeonGreen else LanternTextMuted,
                     modifier = Modifier.size(16.dp)
@@ -401,65 +455,73 @@ fun CodeEditorScreen(
       }
     }
 
-    // Main Code Editor Area (Gutter + Code Lines with Syntax Coloring)
+    // Main Code Editor Area (or Live Preview if active)
     Box(
       modifier = Modifier
         .weight(1f)
         .fillMaxWidth()
     ) {
       if (activeFile != null) {
-        val lines = editorContent.lines()
-        Row(
-          modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-        ) {
-          // Gutter with line numbers
-          Column(
+        if (isPreviewTabActive && isPreviewable) {
+          // Inline Document / Web Preview
+          DocumentWebPreview(
+            fileName = activeFile!!.name,
+            content = editorContent,
+            projectFiles = files,
+            modifier = Modifier.fillMaxSize().padding(8.dp)
+          )
+        } else {
+          val verticalScrollState = rememberScrollState()
+          val horizontalScrollState = rememberScrollState()
+          val lines = editorContent.lines()
+          val lineCount = maxOf(1, lines.size)
+
+          Row(
             modifier = Modifier
-              .background(CodeGutterBg)
-              .fillMaxHeight()
-              .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.End
+              .fillMaxSize()
+              .verticalScroll(verticalScrollState)
           ) {
-            lines.indices.forEach { index ->
-              Text(
-                text = "${index + 1}",
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                color = LanternTextMuted,
-                lineHeight = 20.sp
+            // Gutter with line numbers (WRAPS content matching lines, NO fillMaxHeight)
+            Column(
+              modifier = Modifier
+                .background(CodeGutterBg)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+              horizontalAlignment = Alignment.End
+            ) {
+              for (index in 1..lineCount) {
+                Text(
+                  text = "$index",
+                  fontSize = 12.sp,
+                  fontFamily = FontFamily.Monospace,
+                  color = LanternTextMuted,
+                  lineHeight = 20.sp
+                )
+              }
+            }
+
+            // Editable Code Text with syntax highlighting transformation
+            Box(
+              modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(horizontalScrollState)
+                .padding(8.dp)
+            ) {
+              BasicTextField(
+                value = editorContent,
+                onValueChange = { viewModel.updateEditorContent(it) },
+                visualTransformation = CodeSyntaxVisualTransformation(activeFile?.language ?: "text"),
+                modifier = Modifier
+                  .widthIn(min = 600.dp)
+                  .testTag("code_editor_text_field"),
+                textStyle = TextStyle(
+                  fontFamily = FontFamily.Monospace,
+                  fontSize = 13.sp,
+                  color = LanternTextPrimary,
+                  lineHeight = 20.sp
+                ),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(LanternNeonGreen)
               )
             }
-          }
-
-          // Editable Code Text with syntax highlighting transformation
-          Box(
-            modifier = Modifier
-              .weight(1f)
-              .horizontalScroll(rememberScrollState())
-              .padding(8.dp)
-          ) {
-            OutlinedTextField(
-              value = editorContent,
-              onValueChange = { viewModel.updateEditorContent(it) },
-              visualTransformation = CodeSyntaxVisualTransformation(activeFile?.language ?: "kotlin"),
-              modifier = Modifier
-                .fillMaxWidth()
-                .testTag("code_editor_text_field"),
-              textStyle = TextStyle(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                color = LanternTextPrimary,
-                lineHeight = 20.sp
-              ),
-              colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent
-              )
-            )
           }
         }
       } else {
@@ -470,7 +532,12 @@ fun CodeEditorScreen(
           horizontalAlignment = Alignment.CenterHorizontally,
           verticalArrangement = Arrangement.Center
         ) {
-          Icon(Icons.Default.InsertDriveFile, contentDescription = null, tint = LanternTextMuted, modifier = Modifier.size(48.dp))
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+            contentDescription = null,
+            tint = LanternTextMuted,
+            modifier = Modifier.size(48.dp)
+          )
           Spacer(modifier = Modifier.height(12.dp))
           Text("No file currently open", color = LanternTextSecondary)
           TextButton(onClick = { isFileTreeOpen = true }) {
@@ -602,7 +669,7 @@ fun CodeEditorScreen(
               if (isAiWorking) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF003D1A))
               } else {
-                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
               }
             }
           }
@@ -702,6 +769,7 @@ fun CodeEditorScreen(
     LiveWebPreviewDialog(
       fileName = activeFile!!.name,
       content = editorContent,
+      projectFiles = files,
       onDismiss = { showPreviewDialog = false }
     )
   }

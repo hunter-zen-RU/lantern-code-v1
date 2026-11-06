@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -427,7 +427,7 @@ Scopes: ${prof.scopes.joinToString(", ")}"""
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.height(32.dp).testTag("terminal_send_button")
       ) {
-        Icon(Icons.Default.Send, contentDescription = "Run", modifier = Modifier.size(14.dp))
+        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Run", modifier = Modifier.size(14.dp))
       }
     }
   }

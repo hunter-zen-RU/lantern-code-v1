@@ -25,7 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Language
@@ -34,7 +34,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
@@ -342,7 +342,7 @@ fun CollaborationScreen(
             verticalAlignment = Alignment.CenterVertically
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(Icons.Default.Chat, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(18.dp))
+              Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(18.dp))
               Spacer(modifier = Modifier.width(8.dp))
               Text("Team Mesh Chat (${messages.size})", fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 13.sp)
             }
@@ -450,7 +450,7 @@ fun CollaborationScreen(
               shape = RoundedCornerShape(8.dp),
               modifier = Modifier.height(48.dp).testTag("send_chat_message_button")
             ) {
-              Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+              Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
             }
           }
         }

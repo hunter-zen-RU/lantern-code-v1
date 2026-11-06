@@ -25,6 +25,8 @@ import com.example.testdeploy.DeploymentPackage
 import com.example.testdeploy.DeploymentPlatform
 import com.example.testdeploy.TestAndDeploymentRunner
 import com.example.testdeploy.TestSuiteSummary
+import com.example.data.ProjectTemplate
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +40,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
   val gitManager = GitManager(repository)
   val collabManager = WebRtcCollaborationManager()
   val aiEngine = AiEngine()
+
+  private var projectFilesJob: Job? = null
 
   val allProjects: StateFlow<List<ProjectEntity>> = repository.allProjects
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -111,12 +115,25 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
 
   fun selectProject(project: ProjectEntity) {
     _selectedProject.value = project
-    viewModelScope.launch {
+    _openTabs.value = emptyList()
+    _activeFile.value = null
+    _editorContent.value = ""
+
+    projectFilesJob?.cancel()
+    projectFilesJob = viewModelScope.launch {
       repository.getFilesForProject(project.id).collect { files ->
         _projectFiles.value = files
-        if (_activeFile.value == null && files.isNotEmpty()) {
-          val initialFile = files.firstOrNull { it.name.endsWith(".kt") } ?: files.first()
-          openFile(initialFile)
+        if (files.isNotEmpty()) {
+          // If no active file or active file does not belong to this project, select the primary file
+          if (_activeFile.value == null || !files.any { it.id == _activeFile.value?.id }) {
+            val primaryFile = files.firstOrNull {
+              it.name in listOf("index.html", "main.py", "src/index.ts", "index.ts", "src/Main.kt", "Main.kt", "README.md")
+            } ?: files.first()
+            openFile(primaryFile)
+          }
+        } else {
+          _activeFile.value = null
+          _editorContent.value = ""
         }
       }
     }
@@ -162,11 +179,12 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
 
   fun createNewFile(projectId: Long, path: String, name: String, language: String) {
     viewModelScope.launch {
+      val starterCode = generateStarterCodeForFile(name, language)
       val id = repository.addFile(
         projectId = projectId,
         path = path,
         name = name,
-        content = "// Created in LANtern Code Studio\n",
+        content = starterCode,
         language = language
       )
       val newFile = ProjectFileEntity(
@@ -174,20 +192,103 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         projectId = projectId,
         path = path,
         name = name,
-        content = "// Created in LANtern Code Studio\n",
+        content = starterCode,
         language = language
       )
       openFile(newFile)
-      showMessage("Created $name")
+      showMessage("Created $name in studio")
     }
   }
 
-  fun createProject(name: String, description: String, gitUrl: String) {
+  private fun generateStarterCodeForFile(name: String, language: String): String {
+    val ext = name.substringAfterLast(".", language).lowercase()
+    return when (ext) {
+      "html", "htm" -> """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>$name</title>
+</head>
+<body>
+  <h1>$name</h1>
+  <p>Created in LANtern Code Studio</p>
+</body>
+</html>
+"""
+      "css" -> """/* $name stylesheet */
+body {
+  margin: 0;
+  padding: 16px;
+  background: #0b0f17;
+  color: #f0f6fc;
+}
+"""
+      "js", "javascript" -> """// $name
+console.log("Initialized $name");
+
+export function run() {
+  return true;
+}
+"""
+      "ts", "typescript" -> """// $name
+export interface Config {
+  enabled: boolean;
+}
+
+export function init(config: Config): void {
+  console.log("TypeScript module ready:", config);
+}
+"""
+      "py", "python" -> """# $name
+import sys
+
+def main():
+    print("Running $name in LANtern Python runtime")
+
+if __name__ == "__main__":
+    main()
+"""
+      "md", "markdown" -> """# $name
+
+Document created in LANtern Code Studio.
+
+### Notes
+- Interactive preview available via the Preview toggle.
+"""
+      "json" -> """{
+  "name": "$name",
+  "version": "1.0.0",
+  "created": true
+}
+"""
+      "sql" -> """-- $name
+CREATE TABLE IF NOT EXISTS sample_table (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+"""
+      "kt", "kotlin" -> """package com.example
+
+fun main() {
+    println("LANtern Code: $name")
+}
+"""
+      else -> "// $name created in LANtern Code Studio\n"
+    }
+  }
+
+  fun createProject(
+    name: String,
+    description: String,
+    gitUrl: String,
+    template: ProjectTemplate = ProjectTemplate.WEB_HTML_JS
+  ) {
     viewModelScope.launch {
-      val id = repository.createProject(name, description, gitUrl)
+      val id = repository.createProject(name, description, gitUrl, template)
       val proj = ProjectEntity(id = id, name = name, description = description, gitRemoteUrl = gitUrl)
       selectProject(proj)
-      showMessage("Workspace '$name' created in SQLite")
+      showMessage("Workspace '$name' created (${template.displayName})")
     }
   }
 

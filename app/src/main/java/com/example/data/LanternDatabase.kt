@@ -43,7 +43,7 @@ abstract class LanternDatabase : RoomDatabase() {
           context.applicationContext,
           LanternDatabase::class.java,
           "lantern_code_workspace.db"
-        ).fallbackToDestructiveMigration().build()
+        ).fallbackToDestructiveMigration(dropAllTables = true).build()
         INSTANCE = instance
         instance
       }

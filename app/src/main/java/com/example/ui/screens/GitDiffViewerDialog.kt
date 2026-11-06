@@ -15,7 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material3.AlertDialog
@@ -93,7 +93,7 @@ fun GitDiffViewerDialog(
           verticalAlignment = Alignment.CenterVertically
         ) {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.CallMerge, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
             Text("Resolver:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = LanternTextSecondary)
           }

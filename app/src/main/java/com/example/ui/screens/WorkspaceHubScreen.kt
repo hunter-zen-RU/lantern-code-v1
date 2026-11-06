@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.data.ProjectTemplate
 import com.example.data.entity.ProjectEntity
 import com.example.ui.WorkspaceViewModel
 import com.example.ui.theme.LanternBrightGreen
@@ -195,7 +196,7 @@ fun WorkspaceHubScreen(
         OutlinedButton(
           onClick = { showGitHubManagerDialog = true },
           colors = ButtonDefaults.outlinedButtonColors(contentColor = LanternCyan),
-          border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(LanternCyan, LanternCyan))),
+          border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(brush = Brush.linearGradient(listOf(LanternCyan, LanternCyan))),
           shape = RoundedCornerShape(12.dp),
           modifier = Modifier
             .weight(1f)
@@ -286,8 +287,8 @@ fun WorkspaceHubScreen(
   if (showNewProjectDialog) {
     NewProjectDialog(
       onDismiss = { showNewProjectDialog = false },
-      onCreate = { name, desc, git ->
-        viewModel.createProject(name, desc, git)
+      onCreate = { name, desc, git, template ->
+        viewModel.createProject(name, desc, git, template)
         showNewProjectDialog = false
         onNavigateToEditor()
       }
@@ -451,16 +452,17 @@ fun ProjectCard(
 @Composable
 fun NewProjectDialog(
   onDismiss: () -> Unit,
-  onCreate: (name: String, desc: String, git: String) -> Unit
+  onCreate: (name: String, desc: String, git: String, template: ProjectTemplate) -> Unit
 ) {
   var name by remember { mutableStateOf("") }
   var desc by remember { mutableStateOf("") }
   var git by remember { mutableStateOf("") }
+  var selectedTemplate by remember { mutableStateOf(ProjectTemplate.WEB_HTML_JS) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
     title = {
-      Text("Create SQLite Workspace", color = LanternTextPrimary, fontWeight = FontWeight.Bold)
+      Text("Create Workspace", color = LanternTextPrimary, fontWeight = FontWeight.Bold)
     },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -468,7 +470,7 @@ fun NewProjectDialog(
           value = name,
           onValueChange = { name = it },
           label = { Text("Project Name") },
-          placeholder = { Text("e.g. MyMeshApp") },
+          placeholder = { Text("e.g. MyWebStudio or DataScript") },
           singleLine = true,
           modifier = Modifier.fillMaxWidth().testTag("new_project_name_input"),
           colors = OutlinedTextFieldDefaults.colors(
@@ -486,6 +488,45 @@ fun NewProjectDialog(
           modifier = Modifier.fillMaxWidth()
         )
 
+        Text("Select Project Template:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = LanternCyan)
+
+        // Template Selector Grid / Chips
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          for (tmpl in ProjectTemplate.values()) {
+            val isSelected = selectedTemplate == tmpl
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isSelected) LanternNeonGreen.copy(alpha = 0.15f) else LanternObsidianBorder.copy(alpha = 0.4f))
+                .border(
+                  width = 1.dp,
+                  color = if (isSelected) LanternNeonGreen else Color.Transparent,
+                  shape = RoundedCornerShape(8.dp)
+                )
+                .clickable { selectedTemplate = tmpl }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text(tmpl.icon, fontSize = 16.sp)
+              Spacer(modifier = Modifier.width(8.dp))
+              Column {
+                Text(
+                  text = tmpl.displayName,
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isSelected) LanternNeonGreen else LanternTextPrimary
+                )
+                Text(
+                  text = tmpl.description,
+                  fontSize = 10.sp,
+                  color = LanternTextSecondary
+                )
+              }
+            }
+          }
+        }
+
         OutlinedTextField(
           value = git,
           onValueChange = { git = it },
@@ -499,7 +540,7 @@ fun NewProjectDialog(
     confirmButton = {
       Button(
         onClick = {
-          if (name.isNotBlank()) onCreate(name.trim(), desc.trim(), git.trim())
+          if (name.isNotBlank()) onCreate(name.trim(), desc.trim(), git.trim(), selectedTemplate)
         },
         colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
         modifier = Modifier.testTag("confirm_create_project_button")

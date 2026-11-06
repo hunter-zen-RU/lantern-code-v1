@@ -124,4 +124,53 @@ class ExampleUnitTest {
     assertTrue(summary.totalTests > 0)
     assertTrue(summary.passedCount > 0)
   }
+
+  @Test
+  fun testMarkdownToStyledHtml() {
+    val md = """# Project Title
+## Subheading
+- [x] Finished task
+- [ ] Todo item
+`val x = 10`
+```javascript
+console.log("hello");
+```
+| Key | Value |
+| --- | --- |
+| theme | neon |
+"""
+    val html = com.example.ui.screens.convertMarkdownToStyledHtml("README.md", md)
+    assertTrue(html.contains("<h1>Project Title</h1>"))
+    assertTrue(html.contains("<h2>Subheading</h2>"))
+    assertTrue(html.contains("class=\"task-item checked\""))
+    assertTrue(html.contains("<pre><code class=\"language-javascript\">"))
+    assertTrue(html.contains("<table>"))
+  }
+
+  @Test
+  fun testMultiLanguageProjectTemplateCreation() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = LanternDatabase.getDatabase(context)
+    val repo = WorkspaceRepository(db)
+
+    val webProjId = repo.createProject("MyWebApp", "HTML5 web app", "", com.example.data.ProjectTemplate.WEB_HTML_JS)
+    assertTrue(webProjId > 0)
+
+    val pyProjId = repo.createProject("DataScript", "Python script", "", com.example.data.ProjectTemplate.PYTHON)
+    assertTrue(pyProjId > 0)
+  }
+
+  @Test
+  fun testCodeSyntaxTransformationSafety() {
+    val transformer = com.example.ui.components.CodeSyntaxVisualTransformation("python")
+    val res1 = transformer.filter(androidx.compose.ui.text.AnnotatedString(""))
+    assertEquals("", res1.text.text)
+
+    val res2 = transformer.filter(androidx.compose.ui.text.AnnotatedString("def run(x):\n    # comment\n    return 'val' + 42\n"))
+    assertEquals("def run(x):\n    # comment\n    return 'val' + 42\n", res2.text.text)
+
+    val htmlTransformer = com.example.ui.components.CodeSyntaxVisualTransformation("html")
+    val res3 = htmlTransformer.filter(androidx.compose.ui.text.AnnotatedString("<!DOCTYPE html><html><body class='card'>Hello</body></html>"))
+    assertEquals("<!DOCTYPE html><html><body class='card'>Hello</body></html>", res3.text.text)
+  }
 }
