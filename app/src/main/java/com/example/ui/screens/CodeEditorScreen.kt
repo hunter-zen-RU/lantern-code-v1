@@ -77,6 +77,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,7 +88,20 @@ import com.example.ai.AuditSeverity
 import com.example.ai.ProjectAuditor
 import com.example.data.entity.ProjectFileEntity
 import com.example.ui.WorkspaceViewModel
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import com.example.ui.components.AiCompletionOverlay
+import com.example.ui.components.BreadcrumbBar
 import com.example.ui.components.CodeSyntaxVisualTransformation
+import com.example.ui.components.CommandAction
+import com.example.ui.components.CommandPaletteModal
+import com.example.ui.components.EditorMinimap
+import com.example.ui.components.GeminiAutocompleter
+import com.example.ui.components.TreeViewFileExplorer
 import com.example.ui.theme.CodeEditorBg
 import com.example.ui.theme.CodeGutterBg
 import com.example.ui.theme.LanternBrightGreen
@@ -103,6 +118,7 @@ fun CodeEditorScreen(
   viewModel: WorkspaceViewModel,
   onNavigateToAudit: () -> Unit,
   onNavigateToCollab: () -> Unit,
+  onNavigateToGit: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   val selectedProject by viewModel.selectedProject.collectAsStateWithLifecycle()
@@ -113,6 +129,7 @@ fun CodeEditorScreen(
   val roomState by viewModel.roomState.collectAsStateWithLifecycle()
   val aiResult by viewModel.aiResult.collectAsStateWithLifecycle()
   val isAiWorking by viewModel.isAiWorking.collectAsStateWithLifecycle()
+  val targetScrollLine by viewModel.targetScrollLine.collectAsStateWithLifecycle()
 
   var isFileTreeOpen by remember { mutableStateOf(false) }
   var isAiDrawerOpen by remember { mutableStateOf(false) }
@@ -127,8 +144,15 @@ fun CodeEditorScreen(
   var selectedSymbolSet by remember { mutableStateOf("General") }
   var customSymbols by remember { mutableStateOf(listOf<String>()) }
   var showAddSymbolDialog by remember { mutableStateOf(false) }
+  var showCommandPalette by remember { mutableStateOf(false) }
+  var isMinimapVisible by remember { mutableStateOf(true) }
   var showGoToLineDialog by remember { mutableStateOf(false) }
   var activeLineNumber by remember { mutableIntStateOf(1) }
+
+  val coroutineScope = rememberCoroutineScope()
+  var aiSuggestion by remember { mutableStateOf<String?>(null) }
+  var aiSource by remember { mutableStateOf("") }
+  var isAiLoading by remember { mutableStateOf(false) }
 
   val isPreviewable = activeFile?.let {
     it.name.endsWith(".html", ignoreCase = true) ||
@@ -144,6 +168,12 @@ fun CodeEditorScreen(
   Column(
     modifier = modifier
       .fillMaxSize()
+      .onKeyEvent { event ->
+        if (event.isCtrlPressed && event.isShiftPressed && event.key == Key.P) {
+          showCommandPalette = true
+          true
+        } else false
+      }
       .background(CodeEditorBg)
   ) {
     if (isImeVisible) {
@@ -380,6 +410,19 @@ fun CodeEditorScreen(
             )
           }
 
+          // Command Palette Button (Ctrl+Shift+P)
+          IconButton(
+            onClick = { showCommandPalette = true },
+            modifier = Modifier.size(32.dp).testTag("command_palette_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Terminal,
+              contentDescription = "Command Palette (Ctrl+Shift+P)",
+              tint = LanternNeonGreen,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
           // Live Web Preview Button
           IconButton(
             onClick = { showPreviewDialog = true },
@@ -402,6 +445,19 @@ fun CodeEditorScreen(
               imageVector = Icons.Default.Save,
               contentDescription = "Save File",
               tint = if (activeFile?.isModified == true) LanternNeonGreen else LanternTextMuted,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Git Dashboard Button
+          IconButton(
+            onClick = onNavigateToGit,
+            modifier = Modifier.size(32.dp).testTag("git_dashboard_icon_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Difference,
+              contentDescription = "Git Dashboard",
+              tint = LanternCyan,
               modifier = Modifier.size(18.dp)
             )
           }
@@ -479,82 +535,36 @@ fun CodeEditorScreen(
           }
         }
       }
+
+      // Breadcrumb Navigation Bar showing directory structure
+      if (activeFile != null) {
+        BreadcrumbBar(
+          activeFile = activeFile,
+          allProjectFiles = files,
+          onSelectFile = { selected -> viewModel.openFile(selected) }
+        )
+      }
     }
 
-    // File Tree Drawer Overlay
+    // Tree-View File Explorer Drawer Overlay
     AnimatedVisibility(visible = isFileTreeOpen) {
-      Card(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(8.dp)
-          .testTag("file_tree_drawer"),
-        colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
-        shape = RoundedCornerShape(12.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(LanternObsidianBorder))
-      ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(Icons.Default.Folder, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(18.dp))
-              Spacer(modifier = Modifier.width(6.dp))
-              Text("Project Explorer (${files.size})", fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 13.sp)
-            }
-
-            IconButton(
-              onClick = { showNewFileDialog = true },
-              modifier = Modifier.size(24.dp).testTag("new_file_button")
-            ) {
-              Icon(Icons.Default.Add, contentDescription = "New File", tint = LanternNeonGreen, modifier = Modifier.size(20.dp))
-            }
+      TreeViewFileExplorer(
+        files = files,
+        activeFile = activeFile,
+        onOpenFile = { file ->
+          viewModel.openFile(file)
+          isFileTreeOpen = false
+        },
+        onCreateFile = { path, name, lang ->
+          selectedProject?.id?.let { pid ->
+            viewModel.createNewFile(pid, path, name, lang)
           }
-
-          Spacer(modifier = Modifier.height(8.dp))
-
-          LazyColumn(modifier = Modifier.height(160.dp)) {
-            items(files) { file ->
-              val isCurrent = file.id == activeFile?.id
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .clip(RoundedCornerShape(6.dp))
-                  .background(if (isCurrent) LanternNeonGreen.copy(alpha = 0.15f) else Color.Transparent)
-                  .clickable {
-                    viewModel.openFile(file)
-                    isFileTreeOpen = false
-                  }
-                  .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-              ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Icon(
-                    imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
-                    contentDescription = null,
-                    tint = if (isCurrent) LanternNeonGreen else LanternTextMuted,
-                    modifier = Modifier.size(16.dp)
-                  )
-                  Spacer(modifier = Modifier.width(8.dp))
-                  Text(
-                    text = file.path,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = if (isCurrent) LanternNeonGreen else LanternTextPrimary
-                  )
-                }
-                Text(
-                  text = file.language,
-                  fontSize = 10.sp,
-                  color = LanternTextMuted
-                )
-              }
-            }
-          }
-        }
-      }
+        },
+        onDeleteFile = { file ->
+          viewModel.deleteFile(file)
+        },
+        onClose = { isFileTreeOpen = false }
+      )
     }
 
     // Live Peer Cursors Indicator Bar
@@ -616,10 +626,42 @@ fun CodeEditorScreen(
         } else {
           val verticalScrollState = rememberScrollState()
           val horizontalScrollState = rememberScrollState()
+
+          // Auto-trigger Gemini AI completion as typing occurs (debounced)
+          LaunchedEffect(editorContent) {
+            val currentFile = activeFile
+            if (currentFile != null && editorContent.isNotBlank()) {
+              kotlinx.coroutines.delay(900)
+              val prefix = editorContent.take((activeLineNumber * 40).coerceAtMost(editorContent.length))
+              val suffix = if (prefix.length < editorContent.length) editorContent.substring(prefix.length) else ""
+
+              isAiLoading = true
+              val result = GeminiAutocompleter.fetchCompletion(
+                prefix = prefix,
+                suffix = suffix,
+                fileName = currentFile.name,
+                language = currentFile.language
+              )
+              isAiLoading = false
+              aiSuggestion = if (result.isSuccess) result.snippet else null
+              aiSource = result.source
+            }
+          }
+
           LaunchedEffect(activeFile?.id) {
             verticalScrollState.scrollTo(0)
             horizontalScrollState.scrollTo(0)
             activeLineNumber = 1
+            aiSuggestion = null
+          }
+
+          LaunchedEffect(targetScrollLine) {
+            targetScrollLine?.let { targetLine ->
+              activeLineNumber = targetLine
+              val offset = ((targetLine - 3).coerceAtLeast(0) * 60)
+              verticalScrollState.animateScrollTo(offset)
+              viewModel.clearTargetScrollLine()
+            }
           }
           val lines = editorContent.lines()
           val lineCount = maxOf(1, lines.size)
@@ -639,46 +681,84 @@ fun CodeEditorScreen(
               modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(verticalScrollState)
             ) {
-              // Custom Editor Gutter Component with Line Numbers, Audit Badges, and Peer Cursors
-              EditorGutter(
-                lineCount = lineCount,
-                activeLine = activeLineNumber,
-                issueLines = issueLineMap,
-                peerCursorLines = peerCursorLines,
-                onLineClick = { clickedLine ->
-                  activeLineNumber = clickedLine
-                }
-              )
-
-              // Editable Code Text with syntax highlighting transformation
-              Box(
+              Row(
                 modifier = Modifier
                   .weight(1f)
-                  .horizontalScroll(horizontalScrollState)
-                  .padding(8.dp)
+                  .fillMaxHeight()
+                  .verticalScroll(verticalScrollState)
               ) {
-                BasicTextField(
-                  value = editorContent,
-                  onValueChange = { viewModel.updateEditorContent(it) },
-                  visualTransformation = CodeSyntaxVisualTransformation(
-                    language = activeFile?.language ?: "",
-                    fileName = activeFile?.name ?: ""
-                  ),
+                // Custom Editor Gutter Component with Line Numbers, Audit Badges, and Peer Cursors
+                EditorGutter(
+                  lineCount = lineCount,
+                  activeLine = activeLineNumber,
+                  issueLines = issueLineMap,
+                  peerCursorLines = peerCursorLines,
+                  onLineClick = { clickedLine ->
+                    activeLineNumber = clickedLine
+                  }
+                )
+
+                // Editable Code Text with syntax highlighting transformation
+                Box(
                   modifier = Modifier
-                    .widthIn(min = 600.dp)
-                    .testTag("code_editor_text_field"),
-                  textStyle = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    color = LanternTextPrimary,
-                    lineHeight = 20.sp
-                  ),
-                  cursorBrush = androidx.compose.ui.graphics.SolidColor(LanternNeonGreen)
+                    .weight(1f)
+                    .horizontalScroll(horizontalScrollState)
+                    .padding(8.dp)
+                ) {
+                  BasicTextField(
+                    value = editorContent,
+                    onValueChange = { viewModel.updateEditorContent(it) },
+                    visualTransformation = CodeSyntaxVisualTransformation(
+                      language = activeFile?.language ?: "",
+                      fileName = activeFile?.name ?: ""
+                    ),
+                    modifier = Modifier
+                      .widthIn(min = 600.dp)
+                      .testTag("code_editor_text_field"),
+                    textStyle = TextStyle(
+                      fontFamily = FontFamily.Monospace,
+                      fontSize = 13.sp,
+                      color = LanternTextPrimary,
+                      lineHeight = 20.sp
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(LanternNeonGreen)
+                  )
+                }
+              }
+
+              // Vertical File Scroll Mini-Map on the right side of the editor
+              if (isMinimapVisible) {
+                EditorMinimap(
+                  lines = lines,
+                  activeLine = activeLineNumber,
+                  scrollState = verticalScrollState,
+                  issueLines = issueLineMap,
+                  onLineClick = { clickedLine ->
+                    activeLineNumber = clickedLine
+                  }
                 )
               }
             }
+
+            // AI Autocompletion Floating Suggestion Overlay
+            AiCompletionOverlay(
+              suggestion = aiSuggestion,
+              source = aiSource,
+              isLoading = isAiLoading,
+              onAccept = { snippet ->
+                val linesListCurrent = editorContent.lines().toMutableList()
+                if (activeLineNumber in 1..linesListCurrent.size) {
+                  linesListCurrent[activeLineNumber - 1] = linesListCurrent[activeLineNumber - 1] + snippet
+                  viewModel.updateEditorContent(linesListCurrent.joinToString("\n"))
+                } else {
+                  val newContent = editorContent + (if (editorContent.endsWith("\n") || editorContent.isEmpty()) "" else "\n") + snippet
+                  viewModel.updateEditorContent(newContent)
+                }
+                aiSuggestion = null
+              },
+              onDismiss = { aiSuggestion = null }
+            )
 
             // Editor Status Bar at bottom of code viewport
             val linesList = editorContent.lines()
@@ -712,6 +792,39 @@ fun CodeEditorScreen(
               }
 
               Row(verticalAlignment = Alignment.CenterVertically) {
+                // Manual AI Autocomplete Trigger Button
+                IconButton(
+                  onClick = {
+                    coroutineScope.launch {
+                      val currentFile = activeFile
+                      if (currentFile != null) {
+                        isAiLoading = true
+                        val prefix = editorContent.take((activeLineNumber * 40).coerceAtMost(editorContent.length))
+                        val suffix = if (prefix.length < editorContent.length) editorContent.substring(prefix.length) else ""
+                        val result = GeminiAutocompleter.fetchCompletion(
+                          prefix = prefix,
+                          suffix = suffix,
+                          fileName = currentFile.name,
+                          language = currentFile.language
+                        )
+                        isAiLoading = false
+                        aiSuggestion = if (result.isSuccess) result.snippet else null
+                        aiSource = result.source
+                      }
+                    }
+                  },
+                  modifier = Modifier.size(24.dp).testTag("trigger_ai_completion_btn")
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = "Trigger AI Autocomplete",
+                    tint = LanternNeonGreen,
+                    modifier = Modifier.size(14.dp)
+                  )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
                 if (activeFileIssues.isNotEmpty()) {
                   Box(
                     modifier = Modifier
@@ -1104,6 +1217,49 @@ fun CodeEditorScreen(
       onGoToLine = { targetLine ->
         activeLineNumber = targetLine
         showGoToLineDialog = false
+      }
+    )
+  }
+
+  if (showCommandPalette) {
+    CommandPaletteModal(
+      onDismiss = { showCommandPalette = false },
+      onExecute = { action ->
+        when (action) {
+          CommandAction.FORMAT_DOC -> viewModel.formatCurrentDocument()
+          CommandAction.SAVE_FILE -> viewModel.saveCurrentFile()
+          CommandAction.SAVE_ALL -> viewModel.saveAllFiles()
+          CommandAction.CLOSE_FILE -> activeFile?.let { viewModel.closeTab(it) }
+          CommandAction.CLOSE_ALL -> viewModel.closeAllTabs()
+          CommandAction.FIND_FILES -> showFuzzySearchDialog = true
+          CommandAction.GIT_COMMIT -> showCommitDialog = true
+          CommandAction.GIT_DASHBOARD -> onNavigateToGit()
+          CommandAction.GO_TO_LINE -> showGoToLineDialog = true
+          CommandAction.NEW_FILE -> showNewFileDialog = true
+          CommandAction.AUDIT -> onNavigateToAudit()
+          CommandAction.TOGGLE_AI -> {
+            coroutineScope.launch {
+              val currentFile = activeFile
+              if (currentFile != null) {
+                isAiLoading = true
+                val prefix = editorContent.take((activeLineNumber * 40).coerceAtMost(editorContent.length))
+                val suffix = if (prefix.length < editorContent.length) editorContent.substring(prefix.length) else ""
+                val result = GeminiAutocompleter.fetchCompletion(
+                  prefix = prefix,
+                  suffix = suffix,
+                  fileName = currentFile.name,
+                  language = currentFile.language
+                )
+                isAiLoading = false
+                aiSuggestion = if (result.isSuccess) result.snippet else null
+                aiSource = result.source
+              }
+            }
+          }
+          CommandAction.TOGGLE_MINIMAP -> {
+            isMinimapVisible = !isMinimapVisible
+          }
+        }
       }
     )
   }

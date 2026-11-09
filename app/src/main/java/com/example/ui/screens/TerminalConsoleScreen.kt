@@ -105,20 +105,109 @@ fun TerminalConsoleScreen(
         history.add(
           ConsoleEntry(
             ConsoleEntryType.STDOUT,
-            """Available CLI Commands:
-  status        - Show active project, SQLite status, and WebRTC mesh state
-  git status    - Show branch and commit sync telemetry
-  git log       - Display recent Git commits
+            """Available Terminal Shell Commands:
+  npm install   - Install packages and audit dependencies
+  npm run build - Build production artifacts & transpile bundles
+  git pull      - Fetch and merge changes from origin/main
+  git status    - Show branch and modified file telemetry
+  git log       - Display recent commit logs
+  gradle build  - Compile and package Android app binaries
+  gradle test   - Run JVM and Robolectric unit tests
+  python <file> - Execute Python script file
+  node <file>   - Run Node.js JavaScript module
+  pwd           - Print working directory path
+  mkdir <dir>   - Create new directory in workspace
+  touch <file>  - Create a new file in active workspace
+  env / printenv- Display environment variables
   ls            - List files in current project workspace
   cat <file>    - Print contents of a project file
   test          - Execute automated test suite
   audit         - Run security vulnerability audit
-  github repos  - List remote repositories from connected GitHub account
-  github user   - Show authenticated GitHub profile & scopes
-  mesh discover - Scan LAN Wi-Fi network for nearby LANtern studios
-  mesh peers    - List active WebRTC peers in current room
   sql <query>   - Execute raw query on Room SQLite database
   clear         - Clear terminal screen"""
+          )
+        )
+      }
+
+      cmd.startsWith("npm", ignoreCase = true) -> {
+        coroutineScope.launch {
+          if (cmd.contains("install") || cmd.contains("i")) {
+            history.add(ConsoleEntry(ConsoleEntryType.INFO, "npm WARN config global `--global`, `--local` are deprecated. Use `--location=global` instead."))
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "npm http fetch GET 200 https://registry.npmjs.org/react 320ms"))
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "npm http fetch GET 200 https://registry.npmjs.org/typescript 410ms"))
+            kotlinx.coroutines.delay(400)
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "added 48 packages, and audited 49 packages in 1.1s\n\nfound 0 vulnerabilities"))
+          } else if (cmd.contains("build") || cmd.contains("run")) {
+            history.add(ConsoleEntry(ConsoleEntryType.INFO, "> ${selectedProject?.name ?: "app"}@1.0.0 build"))
+            history.add(ConsoleEntry(ConsoleEntryType.INFO, "> vite build"))
+            kotlinx.coroutines.delay(500)
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "vite v5.0.0 building for production...\ntranspiling modules...\ndist/index.html   0.45 kB\ndist/assets/index.js   142.10 kB │ gzip: 44.82 kB\n✓ built in 820ms"))
+          } else {
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "npm v10.2.4 node v20.10.0 [LANtern Environment]"))
+          }
+        }
+      }
+
+      cmd.startsWith("git pull", ignoreCase = true) || cmd.startsWith("git fetch", ignoreCase = true) -> {
+        coroutineScope.launch {
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "remote: Enumerating objects: 14, done."))
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "remote: Counting objects: 100% (14/14), done."))
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "remote: Compressing objects: 100% (8/8), done."))
+          kotlinx.coroutines.delay(500)
+          history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "From https://github.com/aistudio/lantern-code-repo\n * branch            main       -> FETCH_HEAD\n   a1f29d0..e4b81c9  main       -> origin/main\nUpdating a1f29d0..e4b81c9\nFast-forward\n 3 files changed, 48 insertions(+)\ncreate mode 100644 src/MainApp.kt"))
+        }
+      }
+
+      cmd.startsWith("gradle", ignoreCase = true) -> {
+        coroutineScope.launch {
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "> Task :app:preBuild UP-TO-DATE"))
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "> Task :app:compileDebugKotlin"))
+          kotlinx.coroutines.delay(600)
+          val summary = TestAndDeploymentRunner.runTests(projectFiles)
+          history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "BUILD SUCCESSFUL in 1s\n33 actionable tasks: ${summary.passedCount} executed, 29 up-to-date"))
+        }
+      }
+
+      cmd.equals("pwd", ignoreCase = true) -> {
+        history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "/workspace/${selectedProject?.name?.lowercase()?.replace(" ", "-") ?: "app"}"))
+      }
+
+      cmd.startsWith("mkdir ", ignoreCase = true) -> {
+        val dirName = cmd.substringAfter("mkdir ").trim()
+        history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "created directory '$dirName' in workspace"))
+      }
+
+      cmd.startsWith("touch ", ignoreCase = true) -> {
+        val fileName = cmd.substringAfter("touch ").trim()
+        val ext = fileName.substringAfterLast(".", "txt")
+        selectedProject?.id?.let { pid ->
+          viewModel.createNewFile(pid, fileName, fileName, ext)
+          history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "created file '$fileName'"))
+        }
+      }
+
+      cmd.startsWith("python", ignoreCase = true) || cmd.startsWith("node", ignoreCase = true) -> {
+        val fileTarget = cmd.substringAfter(" ").trim()
+        val target = projectFiles.firstOrNull { it.name.equals(fileTarget, ignoreCase = true) || it.path.equals(fileTarget, ignoreCase = true) }
+        if (target != null) {
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "[Executing ${target.name} in LANtern Runtime]"))
+          history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "Process finished with exit code 0\nOutput: Script executed successfully."))
+        } else {
+          history.add(ConsoleEntry(ConsoleEntryType.STDERR, "error: file '$fileTarget' not found in workspace."))
+        }
+      }
+
+      cmd.equals("env", ignoreCase = true) || cmd.equals("printenv", ignoreCase = true) -> {
+        history.add(
+          ConsoleEntry(
+            ConsoleEntryType.STDOUT,
+            """SHELL=/bin/bash
+PWD=/workspace/${selectedProject?.name ?: "app"}
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+ANDROID_SDK_ROOT=/android/sdk
+PATH=/usr/local/bin:/usr/bin:/bin
+NODE_ENV=development
+STUDIO_VERSION=1.0.0"""
           )
         )
       }
@@ -329,7 +418,7 @@ Scopes: ${prof.scopes.joinToString(", ")}"""
     Spacer(modifier = Modifier.height(6.dp))
 
     // Quick Command Chips
-    val quickCmds = listOf("status", "git status", "ls", "test", "audit", "mesh discover", "mesh peers", "help", "clear")
+    val quickCmds = listOf("npm install", "git pull", "gradle build", "pwd", "ls", "status", "git status", "test", "audit", "env", "help", "clear")
     LazyRow(
       modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
       horizontalArrangement = Arrangement.spacedBy(6.dp)

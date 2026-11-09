@@ -6,10 +6,13 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.example.data.entity.AuditReportEntity
+import com.example.data.entity.GitBlameEntity
 import com.example.data.entity.GitCommitEntity
+import com.example.data.entity.GitDiffEntity
 import com.example.data.entity.PeerSessionEntity
 import com.example.data.entity.ProjectEntity
 import com.example.data.entity.ProjectFileEntity
+import com.example.data.entity.TeamChatMessageEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -86,3 +89,43 @@ interface PeerSessionDao {
   @Query("DELETE FROM peer_sessions WHERE roomId = :roomId")
   suspend fun deleteSessionsForRoom(roomId: String)
 }
+
+@Dao
+interface GitDiffDao {
+  @Query("SELECT * FROM git_diffs WHERE projectId = :projectId ORDER BY timestamp DESC")
+  fun getDiffsForProject(projectId: Long): Flow<List<GitDiffEntity>>
+
+  @Query("SELECT * FROM git_diffs WHERE diffId = :diffId LIMIT 1")
+  suspend fun getDiffById(diffId: String): GitDiffEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertDiff(diff: GitDiffEntity): Long
+
+  @Query("DELETE FROM git_diffs WHERE projectId = :projectId")
+  suspend fun deleteDiffsForProject(projectId: Long)
+}
+
+@Dao
+interface GitBlameDao {
+  @Query("SELECT * FROM git_blame WHERE fileId = :fileId ORDER BY lineNumber ASC")
+  fun getBlameForFile(fileId: Long): Flow<List<GitBlameEntity>>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertBlameRecords(records: List<GitBlameEntity>)
+
+  @Query("DELETE FROM git_blame WHERE fileId = :fileId")
+  suspend fun deleteBlameForFile(fileId: Long)
+}
+
+@Dao
+interface TeamChatMessageDao {
+  @Query("SELECT * FROM team_chat_messages WHERE roomId = :roomId ORDER BY timestamp ASC")
+  fun getMessagesForRoom(roomId: String): Flow<List<TeamChatMessageEntity>>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertMessage(message: TeamChatMessageEntity): Long
+
+  @Query("DELETE FROM team_chat_messages WHERE roomId = :roomId")
+  suspend fun deleteMessagesForRoom(roomId: String)
+}
+

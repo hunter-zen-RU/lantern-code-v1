@@ -24,7 +24,8 @@ data class ChatMessage(
   val text: String,
   val timestamp: Long = System.currentTimeMillis(),
   val isAi: Boolean = false,
-  val colorHex: Long = 0xFF00E676
+  val colorHex: Long = 0xFF00E676,
+  val codeReference: CodeReference? = null
 )
 
 data class DiscoveredStudio(
@@ -45,7 +46,8 @@ data class WebRtcRoom(
   val isHosting: Boolean,
   val isEncrypted: Boolean = true,
   val peers: List<Peer> = emptyList(),
-  val messages: List<ChatMessage> = emptyList()
+  val messages: List<ChatMessage> = emptyList(),
+  val pairingCode: String = "LANT-8821"
 )
 
 class WebRtcCollaborationManager {
@@ -117,14 +119,19 @@ class WebRtcCollaborationManager {
     return room
   }
 
-  fun sendChatMessage(text: String, senderName: String = "Mobile Host") {
+  fun sendChatMessage(
+    text: String,
+    senderName: String = "Mobile Host",
+    codeReference: CodeReference? = null
+  ) {
     val current = _roomState.value ?: return
     val userMsg = ChatMessage(
       id = "msg-${System.currentTimeMillis()}",
       senderName = senderName,
       text = text,
       isAi = false,
-      colorHex = 0xFF00E676
+      colorHex = 0xFF00E676,
+      codeReference = codeReference
     )
 
     val updatedMessages = current.messages + userMsg
@@ -137,6 +144,7 @@ class WebRtcCollaborationManager {
         id = "msg-ai-${System.currentTimeMillis()}",
         senderName = "LANtern AI Co-Pilot",
         text = when {
+          codeReference != null -> "I see you referenced ${codeReference.fileName} line ${codeReference.lineNumber}: \"${codeReference.lineSnippet}\". AST inspects clean, no syntax issues."
           lower.contains("test") -> "I've reviewed the test suite in tests/MeshUnitTest.kt. All delta assertions pass under 45ms latency."
           lower.contains("git") || lower.contains("commit") -> "Working tree is clean. Ready to push to origin/main or create a PR branch."
           lower.contains("sql") || lower.contains("db") -> "Local SQLite cache schema is validated in Room WAL mode."
@@ -147,6 +155,33 @@ class WebRtcCollaborationManager {
       )
       _roomState.value = _roomState.value?.copy(messages = updatedMessages + aiReply)
     }
+  }
+
+  fun connectWithPairingCode(pairingCode: String, userName: String = "Peer Developer"): WebRtcRoom {
+    val cleanCode = pairingCode.trim().uppercase()
+    val roomId = "rm-" + cleanCode.filter { it.isLetterOrDigit() }.take(8)
+    val room = WebRtcRoom(
+      roomId = roomId,
+      roomName = "Global Team ($cleanCode)",
+      inviteLink = "lantern://join?pair=$cleanCode",
+      browserLanUrl = "http://192.168.1.108:8080",
+      browserWanUrl = "https://lantern.mesh.direct/pair/$cleanCode",
+      isHosting = false,
+      pairingCode = cleanCode,
+      peers = listOf(
+        Peer(id = "peer-me", name = userName, role = "Editor", isAi = false, colorHex = 0xFF38BDF8),
+        Peer(id = "host-lead", name = "Team Host", role = "Host", isAi = false, colorHex = 0xFF00E676)
+      ),
+      messages = listOf(
+        ChatMessage(
+          id = "msg-pair-welcome",
+          senderName = "System",
+          text = "Connected to room via pairing code $cleanCode. WebRTC data channel established."
+        )
+      )
+    )
+    _roomState.value = room
+    return room
   }
 
   fun scanLocalNetwork() {

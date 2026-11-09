@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isValidRoom(data) {
+      return data.roomId is string && data.roomId.size() > 0 &&
+             data.name is string && data.name.size() > 0 &&
+             data.hostUid is string && data.hostUid.size() > 0 &&
+             data.status in ['active', 'closed'];
+    }
+
+    function isValidCandidate(data) {
+      return data.senderUid is string && data.senderUid.size() > 0 &&
+             data.candidate is string && data.candidate.size() > 0;
+    }
+
+    function isValidPeer(data) {
+      return data.peerUid is string && data.peerUid.size() > 0 &&
+             data.peerName is string && data.peerName.size() > 0 &&
+             data.role in ['Host', 'Editor', 'Viewer'] &&
+             data.status in ['online', 'idle', 'offline'];
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                    request.resource.data.hostUid == request.auth.uid &&
+                    isValidRoom(request.resource.data);
+      allow update: if isAuthenticated() && isValidRoom(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.hostUid == request.auth.uid;
+
+      match /candidates/{candidateId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+                      request.resource.data.senderUid == request.auth.uid &&
+                      isValidCandidate(request.resource.data);
+        allow update, delete: if isAuthenticated() && resource.data.senderUid == request.auth.uid;
+      }
+
+      match /peers/{peerUid} {
+        allow read: if isAuthenticated();
+        allow write: if isUser(peerUid) && isValidPeer(request.resource.data);
+      }
+    }
+  }
+}

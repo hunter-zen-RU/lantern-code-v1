@@ -23,19 +23,28 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Difference
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PinDrop
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -70,8 +81,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.collab.ChatMessage
+import com.example.collab.CodeReference
 import com.example.collab.DiscoveredStudio
 import com.example.collab.Peer
+import com.example.data.entity.GitDiffEntity
+import com.example.data.entity.ProjectFileEntity
 import com.example.ui.WorkspaceViewModel
 import com.example.ui.theme.LanternBrightGreen
 import com.example.ui.theme.LanternCyan
@@ -85,6 +99,7 @@ import com.example.ui.theme.LanternTextSecondary
 @Composable
 fun CollaborationScreen(
   viewModel: WorkspaceViewModel,
+  onNavigateToEditor: (filePath: String, lineNumber: Int) -> Unit = { _, _ -> },
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -92,9 +107,23 @@ fun CollaborationScreen(
   val discoveredStudios by viewModel.collabManager.discoveredStudios.collectAsStateWithLifecycle()
   val isScanning by viewModel.collabManager.isScanning.collectAsStateWithLifecycle()
 
+  val isServerRunning by viewModel.isServerRunning.collectAsStateWithLifecycle()
+  val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
+  val pairingCode by viewModel.pairingCode.collectAsStateWithLifecycle()
+  val projectFiles by viewModel.projectFiles.collectAsStateWithLifecycle()
+  val activeFile by viewModel.activeFile.collectAsStateWithLifecycle()
+  val selectedProject by viewModel.selectedProject.collectAsStateWithLifecycle()
+  val diffRecords by viewModel.diffRecords.collectAsStateWithLifecycle()
+
   var showAddPeerDialog by remember { mutableStateOf(false) }
   var showQrModal by remember { mutableStateOf(false) }
+  var showJoinPairingDialog by remember { mutableStateOf(false) }
+  var showAttachRefDialog by remember { mutableStateOf(false) }
+  var showDiffsModal by remember { mutableStateOf(false) }
+  var selectedDiffForPreview by remember { mutableStateOf<GitDiffEntity?>(null) }
+
   var chatInput by remember { mutableStateOf("") }
+  var attachedCodeRef by remember { mutableStateOf<CodeReference?>(null) }
 
   val room = roomState
 
@@ -112,15 +141,17 @@ fun CollaborationScreen(
       .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
+    // 1. GLOBAL TEAM PAIRING CODE CARD
     item {
-      // Room Overview Header Card
       Card(
         modifier = Modifier
           .fillMaxWidth()
-          .testTag("collab_room_overview_card"),
+          .testTag("global_pairing_card"),
         colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
         shape = RoundedCornerShape(20.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = Brush.linearGradient(listOf(LanternNeonGreen, LanternCyan)))
+        border = CardDefaults.outlinedCardBorder().copy(
+          brush = Brush.horizontalGradient(listOf(LanternNeonGreen, LanternCyan))
+        )
       ) {
         Column(modifier = Modifier.padding(18.dp)) {
           Row(
@@ -128,138 +159,105 @@ fun CollaborationScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Column {
-              Text(
-                text = "WebRTC P2P Collaboration",
-                style = MaterialTheme.typography.titleLarge.copy(
-                  fontWeight = FontWeight.ExtraBold,
-                  color = LanternBrightGreen
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Box(
+                modifier = Modifier
+                  .size(36.dp)
+                  .clip(CircleShape)
+                  .background(LanternNeonGreen.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(Icons.Default.Link, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(20.dp))
+              }
+              Spacer(modifier = Modifier.width(10.dp))
+              Column {
+                Text(
+                  text = "Global Team Connection",
+                  style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = LanternBrightGreen
+                  )
                 )
-              )
-              Text(
-                text = "Session: ${room?.roomName ?: "Default Mesh"}",
-                style = MaterialTheme.typography.bodySmall.copy(color = LanternTextSecondary)
-              )
+                Text(
+                  text = "WebRTC & Firebase Signaling Channel",
+                  style = MaterialTheme.typography.bodySmall.copy(color = LanternTextSecondary)
+                )
+              }
             }
 
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(LanternNeonGreen.copy(alpha = 0.15f))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+            Button(
+              onClick = { showJoinPairingDialog = true },
+              colors = ButtonDefaults.buttonColors(containerColor = LanternCyan, contentColor = Color(0xFF00293D)),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.height(30.dp).testTag("join_with_pairing_code_button")
             ) {
-              Icon(Icons.Default.Lock, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(12.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("E2E P2P", fontSize = 10.sp, color = LanternNeonGreen, fontWeight = FontWeight.Bold)
+              Text("Join Pair", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
           }
 
           Spacer(modifier = Modifier.height(14.dp))
 
-          // Room ID badge
+          // Pairing Code display
           Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
               .fillMaxWidth()
-              .clip(RoundedCornerShape(8.dp))
+              .clip(RoundedCornerShape(12.dp))
               .background(MaterialTheme.colorScheme.background)
-              .padding(horizontal = 12.dp, vertical = 8.dp),
+              .border(1.dp, LanternNeonGreen.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+              .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
             Column {
-              Text("ROOM IDENTIFIER", fontSize = 9.sp, color = LanternTextMuted, fontWeight = FontWeight.Bold)
+              Text("TEAM PAIRING CODE", fontSize = 9.sp, color = LanternTextMuted, fontWeight = FontWeight.Bold)
               Text(
-                text = room?.roomId ?: "rm-mesh-local",
+                text = pairingCode,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                color = LanternCyan,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = LanternNeonGreen,
+                letterSpacing = 1.sp
               )
             }
 
-            IconButton(
-              onClick = { room?.roomId?.let { copyToClipboard("Room ID", it) } },
-              modifier = Modifier.size(28.dp)
-            ) {
-              Icon(Icons.Default.ContentCopy, contentDescription = "Copy ID", tint = LanternTextSecondary, modifier = Modifier.size(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              Button(
+                onClick = { copyToClipboard("Pairing Code", pairingCode) },
+                colors = ButtonDefaults.buttonColors(containerColor = LanternObsidianCard),
+                shape = RoundedCornerShape(8.dp),
+                border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.horizontalGradient(listOf(LanternNeonGreen, LanternCyan))),
+                modifier = Modifier.height(32.dp).testTag("copy_pairing_code_button")
+              ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Copy Code", fontSize = 11.sp, color = LanternTextPrimary)
+              }
+
+              IconButton(
+                onClick = { showQrModal = true },
+                modifier = Modifier.size(32.dp).testTag("show_qr_pairing_button")
+              ) {
+                Icon(Icons.Default.QrCode2, contentDescription = "QR Code", tint = LanternCyan, modifier = Modifier.size(20.dp))
+              }
             }
           }
         }
       }
     }
 
+    // 2. NANOHTTPD LOCAL SERVER & WEB CODE STUDIO CARD
     item {
-      // Invite Links Section
       Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("nanohttpd_server_card"),
         colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
         shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(LanternObsidianBorder))
-      ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(Icons.Default.Share, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(18.dp))
-              Spacer(modifier = Modifier.width(8.dp))
-              Text("Team & Browser Invite Links", fontWeight = FontWeight.Bold, color = LanternTextPrimary)
-            }
-
-            IconButton(
-              onClick = { showQrModal = true },
-              modifier = Modifier.size(28.dp).testTag("show_qr_code_button")
-            ) {
-              Icon(Icons.Default.QrCode2, contentDescription = "Show QR", tint = LanternCyan, modifier = Modifier.size(20.dp))
-            }
-          }
-
-          Spacer(modifier = Modifier.height(12.dp))
-
-          InviteLinkItem(
-            title = "LANtern App Invite Protocol",
-            subtitle = "Custom deep-link for instant peer join inside LANtern Code",
-            link = room?.inviteLink ?: "lantern://join?room=rm-local",
-            icon = Icons.Default.Router,
-            iconTint = LanternNeonGreen,
-            onCopy = { copyToClipboard("App Invite Link", room?.inviteLink ?: "") }
+        border = CardDefaults.outlinedCardBorder().copy(
+          brush = Brush.horizontalGradient(
+            if (isServerRunning) listOf(LanternNeonGreen, LanternCyan) else listOf(LanternObsidianBorder, LanternObsidianBorder)
           )
-
-          Spacer(modifier = Modifier.height(8.dp))
-
-          InviteLinkItem(
-            title = "Browser LAN Link (Local Wi-Fi)",
-            subtitle = "Direct live IDE viewer for laptops and PCs on your Wi-Fi router",
-            link = room?.browserLanUrl ?: "http://192.168.1.108:8080/workspace",
-            icon = Icons.Default.Wifi,
-            iconTint = LanternCyan,
-            onCopy = { copyToClipboard("Browser LAN Link", room?.browserLanUrl ?: "") }
-          )
-
-          Spacer(modifier = Modifier.height(8.dp))
-
-          InviteLinkItem(
-            title = "Browser WAN Relay Link (Remote)",
-            subtitle = "Encrypted cloud bridge for remote team members over the Internet",
-            link = room?.browserWanUrl ?: "https://lantern.mesh.direct/session",
-            icon = Icons.Default.Language,
-            iconTint = Color(0xFFA78BFA),
-            onCopy = { copyToClipboard("Browser WAN Link", room?.browserWanUrl ?: "") }
-          )
-        }
-      }
-    }
-
-    item {
-      // Local Network Discovery (mDNS / NSD)
-      Card(
-        modifier = Modifier.fillMaxWidth().testTag("local_discovery_card"),
-        colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
-        shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(LanternBrightGreen.copy(alpha = 0.4f)))
+        )
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
           Row(
@@ -268,58 +266,182 @@ fun CollaborationScreen(
             verticalAlignment = Alignment.CenterVertically
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(Icons.Default.Radar, contentDescription = null, tint = LanternBrightGreen, modifier = Modifier.size(20.dp))
-              Spacer(modifier = Modifier.width(8.dp))
+              Box(
+                modifier = Modifier
+                  .size(36.dp)
+                  .clip(CircleShape)
+                  .background(if (isServerRunning) LanternNeonGreen.copy(alpha = 0.2f) else Color.DarkGray),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  Icons.Default.Language,
+                  contentDescription = null,
+                  tint = if (isServerRunning) LanternNeonGreen else LanternTextMuted,
+                  modifier = Modifier.size(20.dp)
+                )
+              }
+              Spacer(modifier = Modifier.width(10.dp))
               Column {
-                Text("Wi-Fi Studio Discovery (mDNS/NSD)", fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 13.sp)
-                Text("Auto-scan local subnet for nearby nodes", fontSize = 11.sp, color = LanternTextSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Text(
+                    text = "NanoHTTPD Web Code Studio",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                      fontWeight = FontWeight.Bold,
+                      color = LanternTextPrimary
+                    )
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Box(
+                    modifier = Modifier
+                      .clip(RoundedCornerShape(4.dp))
+                      .background(if (isServerRunning) LanternNeonGreen.copy(alpha = 0.2f) else Color.DarkGray)
+                      .padding(horizontal = 6.dp, vertical = 2.dp)
+                  ) {
+                    Text(
+                      text = if (isServerRunning) "LIVE" else "OFFLINE",
+                      fontSize = 9.sp,
+                      fontWeight = FontWeight.Bold,
+                      color = if (isServerRunning) LanternNeonGreen else LanternTextMuted
+                    )
+                  }
+                }
+                Text(
+                  text = "Live coding from any local LAN web browser",
+                  style = MaterialTheme.typography.bodySmall.copy(color = LanternTextSecondary)
+                )
               }
             }
 
             Button(
-              onClick = { viewModel.collabManager.scanLocalNetwork() },
-              colors = ButtonDefaults.buttonColors(containerColor = LanternBrightGreen, contentColor = Color(0xFF003D1A)),
+              onClick = { viewModel.toggleLocalWebServer() },
+              colors = ButtonDefaults.buttonColors(
+                containerColor = if (isServerRunning) Color(0xFFEF4444) else LanternNeonGreen,
+                contentColor = if (isServerRunning) Color.White else Color(0xFF003D1A)
+              ),
               shape = RoundedCornerShape(8.dp),
-              modifier = Modifier.height(28.dp).testTag("scan_lan_button")
+              modifier = Modifier.height(30.dp).testTag("toggle_nanohttpd_button")
             ) {
-              if (isScanning) {
-                CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color(0xFF003D1A))
-              } else {
-                Text("Scan Wi-Fi", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-              }
+              Icon(
+                if (isServerRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp)
+              )
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = if (isServerRunning) "Stop" else "Start Server",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+              )
             }
           }
 
           Spacer(modifier = Modifier.height(10.dp))
 
-          discoveredStudios.forEach { studio ->
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.background)
-                .padding(8.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-              Column {
-                Text(studio.name, fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 12.sp)
-                Text(
-                  text = "${studio.hostIp}:${studio.port} • ${studio.activeMembers} peer(s) • ${studio.latencyMs}ms ping",
-                  fontSize = 10.sp,
-                  fontFamily = FontFamily.Monospace,
-                  color = LanternCyan
-                )
-              }
+          Text(
+            text = "Open on your desktop PC, Mac, or tablet on the same Wi-Fi to code live into this mobile project with synchronized tabs and line references:",
+            fontSize = 11.sp,
+            color = LanternTextMuted
+          )
 
+          Spacer(modifier = Modifier.height(8.dp))
+
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clip(RoundedCornerShape(8.dp))
+              .background(MaterialTheme.colorScheme.background)
+              .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+          ) {
+            Column {
+              Text("LOCAL LAN WEB URL", fontSize = 9.sp, color = LanternTextMuted, fontWeight = FontWeight.Bold)
+              Text(
+                text = serverUrl,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                color = if (isServerRunning) LanternCyan else LanternTextMuted,
+                fontWeight = FontWeight.SemiBold
+              )
+            }
+
+            IconButton(
+              onClick = { copyToClipboard("LAN Studio URL", serverUrl) },
+              modifier = Modifier.size(28.dp).testTag("copy_lan_url_button")
+            ) {
+              Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", tint = LanternCyan, modifier = Modifier.size(16.dp))
+            }
+          }
+        }
+      }
+    }
+
+    // 3. DISK STORAGE & DIFF/BLAME TRACKING CARD
+    item {
+      Card(
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("disk_storage_card"),
+        colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = Brush.horizontalGradient(listOf(LanternCyan, LanternNeonGreen)))
+      ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(Icons.Default.Storage, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(20.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Column {
+                Text("Project Files & Diff Storage", fontWeight = FontWeight.Bold, color = LanternTextPrimary)
+                Text("home/LANtern/projects/ & home/LANtern/.diffs/", fontSize = 11.sp, color = LanternTextSecondary)
+              }
+            }
+
+            Button(
+              onClick = { viewModel.exportProjectToDisk() },
+              colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.height(28.dp).testTag("export_project_button")
+            ) {
+              Text("Sync Disk", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+          }
+
+          Spacer(modifier = Modifier.height(10.dp))
+
+          // Diff status
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clip(RoundedCornerShape(8.dp))
+              .background(MaterialTheme.colorScheme.background)
+              .padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Column {
+              Text("SAVED DATABASE DIFFS", fontSize = 9.sp, color = LanternTextMuted, fontWeight = FontWeight.Bold)
+              Text(
+                text = "${diffRecords.size} diff records logged in SQLite",
+                fontSize = 12.sp,
+                color = LanternBrightGreen,
+                fontWeight = FontWeight.SemiBold
+              )
+            }
+
+            if (diffRecords.isNotEmpty()) {
               Button(
-                onClick = { viewModel.showMessage("Connected to nearby mesh studio: ${studio.name}") },
-                colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
+                onClick = { showDiffsModal = true },
+                colors = ButtonDefaults.buttonColors(containerColor = LanternObsidianCard),
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.height(24.dp)
+                border = ButtonDefaults.outlinedButtonBorder,
+                modifier = Modifier.height(26.dp)
               ) {
-                Text("Join", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("Inspect Diffs", fontSize = 10.sp, color = LanternCyan)
               }
             }
           }
@@ -327,13 +449,16 @@ fun CollaborationScreen(
       }
     }
 
+    // 4. TEAM CHAT SYSTEM WITH CODE REFERENCING
     item {
-      // Team Live Chat & AI Co-Pilot Card
       val messages = room?.messages ?: emptyList()
       Card(
-        modifier = Modifier.fillMaxWidth().testTag("team_chat_card"),
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("team_chat_system_card"),
         colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = Brush.horizontalGradient(listOf(LanternNeonGreen, LanternCyan)))
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
           Row(
@@ -344,52 +469,34 @@ fun CollaborationScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
               Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(18.dp))
               Spacer(modifier = Modifier.width(8.dp))
-              Text("Team Mesh Chat (${messages.size})", fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 13.sp)
+              Text("Team Chat & Code References (${messages.size})", fontWeight = FontWeight.Bold, color = LanternTextPrimary, fontSize = 13.sp)
             }
 
-            Text("@ai responds to questions", fontSize = 10.sp, color = LanternCyan)
+            Text("@ai available", fontSize = 10.sp, color = LanternCyan)
           }
 
-          Spacer(modifier = Modifier.height(8.dp))
-
-          // Quick Prompt suggestions
-          LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val chips = listOf("@ai check tests", "@ai summarize git", "@ai mesh health")
-            items(chips) { chip ->
-              Box(
-                modifier = Modifier
-                  .clip(RoundedCornerShape(4.dp))
-                  .background(LanternCyan.copy(alpha = 0.15f))
-                  .clickable {
-                    viewModel.collabManager.sendChatMessage(chip)
-                  }
-                  .padding(horizontal = 6.dp, vertical = 2.dp)
-              ) {
-                Text(chip, fontSize = 10.sp, color = LanternCyan)
-              }
-            }
-          }
-
-          Spacer(modifier = Modifier.height(8.dp))
+          Spacer(modifier = Modifier.height(10.dp))
 
           // Message history list
           Column(
             modifier = Modifier
               .fillMaxWidth()
-              .height(180.dp)
+              .height(240.dp)
               .clip(RoundedCornerShape(8.dp))
               .background(MaterialTheme.colorScheme.background)
-              .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+              .padding(8.dp)
           ) {
-            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(
+              modifier = Modifier.fillMaxSize(),
+              verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
               items(messages) { msg ->
                 Column(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(if (msg.isAi) LanternCyan.copy(alpha = 0.12f) else LanternObsidianCard)
-                    .padding(8.dp)
+                    .padding(10.dp)
                 ) {
                   Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -402,17 +509,165 @@ fun CollaborationScreen(
                       color = Color(msg.colorHex)
                     )
                     Text(
-                      text = if (msg.isAi) "AI Assistant" else "Team",
+                      text = if (msg.isAi) "AI Assistant" else "Team Member",
                       fontSize = 9.sp,
                       color = LanternTextMuted
                     )
                   }
-                  Spacer(modifier = Modifier.height(2.dp))
+
+                  Spacer(modifier = Modifier.height(4.dp))
+
                   Text(
                     text = msg.text,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = LanternTextPrimary
                   )
+
+                  // INTERACTIVE CODE REFERENCE CARD
+                  if (msg.codeReference != null) {
+                    val ref = msg.codeReference
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF090D14))
+                        .border(1.dp, LanternNeonGreen.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .clickable {
+                          viewModel.navigateToCodeReference(ref.filePath, ref.lineNumber)
+                          onNavigateToEditor(ref.filePath, ref.lineNumber)
+                        }
+                        .padding(8.dp)
+                        .testTag("code_reference_card_${ref.fileName}_${ref.lineNumber}")
+                    ) {
+                      Column {
+                        Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                          verticalAlignment = Alignment.CenterVertically
+                        ) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Code, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                              text = "${ref.fileName} : Line ${ref.lineNumber}",
+                              fontSize = 11.sp,
+                              fontFamily = FontFamily.Monospace,
+                              fontWeight = FontWeight.Bold,
+                              color = LanternNeonGreen
+                            )
+                          }
+
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Jump to Code", fontSize = 10.sp, color = LanternCyan, fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(12.dp))
+                          }
+                        }
+
+                        if (ref.lineSnippet.isNotBlank()) {
+                          Spacer(modifier = Modifier.height(4.dp))
+                          Text(
+                            text = ref.lineSnippet,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = Color(0xFFE2E8F0),
+                            modifier = Modifier
+                              .fillMaxWidth()
+                              .clip(RoundedCornerShape(4.dp))
+                              .background(Color.Black)
+                              .padding(4.dp),
+                            maxLines = 2
+                          )
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(8.dp))
+
+          // Attached Code Reference Chip Preview (if user selected one to send)
+          if (attachedCodeRef != null) {
+            val ref = attachedCodeRef!!
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(LanternNeonGreen.copy(alpha = 0.15f))
+                .border(1.dp, LanternNeonGreen.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PinDrop, contentDescription = null, tint = LanternNeonGreen, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                  text = "Ref: ${ref.fileName}:${ref.lineNumber}",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = LanternNeonGreen,
+                  fontFamily = FontFamily.Monospace
+                )
+                if (ref.lineSnippet.isNotBlank()) {
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "\"${ref.lineSnippet.take(30)}\"",
+                    fontSize = 10.sp,
+                    color = LanternTextMuted,
+                    maxLines = 1
+                  )
+                }
+              }
+
+              IconButton(
+                onClick = { attachedCodeRef = null },
+                modifier = Modifier.size(20.dp)
+              ) {
+                Icon(Icons.Default.Close, contentDescription = "Remove Reference", tint = LanternTextMuted, modifier = Modifier.size(12.dp))
+              }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+          }
+
+          // Action row: "+ Reference Code Line" button & Quick prompts
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Button(
+              onClick = { showAttachRefDialog = true },
+              colors = ButtonDefaults.buttonColors(containerColor = LanternCyan.copy(alpha = 0.15f)),
+              shape = RoundedCornerShape(6.dp),
+              border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.horizontalGradient(listOf(LanternCyan, LanternNeonGreen))),
+              modifier = Modifier.height(28.dp).testTag("attach_code_reference_button")
+            ) {
+              Icon(Icons.Default.Add, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(12.dp))
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = if (attachedCodeRef == null) "+ Reference Code Line" else "Change Ref",
+                fontSize = 10.sp,
+                color = LanternCyan,
+                fontWeight = FontWeight.Bold
+              )
+            }
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              val chips = listOf("@ai check tests", "@ai summarize git")
+              items(chips) { chip ->
+                Box(
+                  modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(LanternCyan.copy(alpha = 0.1f))
+                    .clickable { viewModel.collabManager.sendChatMessage(chip) }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(chip, fontSize = 9.sp, color = LanternCyan)
                 }
               }
             }
@@ -428,7 +683,7 @@ fun CollaborationScreen(
             OutlinedTextField(
               value = chatInput,
               onValueChange = { chatInput = it },
-              placeholder = { Text("Message team or ask @ai...", fontSize = 11.sp) },
+              placeholder = { Text("Message team (e.g. check line 46)...", fontSize = 11.sp) },
               modifier = Modifier.weight(1f).height(48.dp).testTag("team_chat_input_field"),
               singleLine = true,
               colors = OutlinedTextFieldDefaults.colors(
@@ -442,310 +697,212 @@ fun CollaborationScreen(
             Button(
               onClick = {
                 if (chatInput.isNotBlank()) {
-                  viewModel.collabManager.sendChatMessage(chatInput.trim())
+                  val ref = attachedCodeRef
+                  viewModel.sendChatMessageWithReference(
+                    text = chatInput.trim(),
+                    senderName = "Mobile Dev",
+                    file = if (ref != null) projectFiles.firstOrNull { it.path == ref.filePath } else null,
+                    lineNumber = ref?.lineNumber ?: 0,
+                    snippet = ref?.lineSnippet ?: ""
+                  )
                   chatInput = ""
+                  attachedCodeRef = null
                 }
               },
               colors = ButtonDefaults.buttonColors(containerColor = LanternCyan, contentColor = Color(0xFF002F48)),
               shape = RoundedCornerShape(8.dp),
-              modifier = Modifier.height(48.dp).testTag("send_chat_message_button")
+              modifier = Modifier.height(48.dp).testTag("send_team_chat_button")
             ) {
-              Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+              Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", modifier = Modifier.size(16.dp))
             }
           }
         }
       }
-    }
-
-    item {
-      // AI Assistant in Team Card
-      val hasAi = room?.peers?.any { it.isAi } == true
-      Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
-        shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(LanternCyan.copy(alpha = 0.4f)))
-      ) {
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-              modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(LanternCyan.copy(alpha = 0.2f)),
-              contentAlignment = Alignment.Center
-            ) {
-              Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = LanternCyan, modifier = Modifier.size(20.dp))
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-              Text(
-                text = "LANtern AI Co-Pilot",
-                style = MaterialTheme.typography.titleSmall.copy(
-                  fontWeight = FontWeight.Bold,
-                  color = LanternTextPrimary
-                )
-              )
-              Text(
-                text = if (hasAi) "Connected to Room as Peer Pair Programmer" else "Offline / Not joined",
-                style = MaterialTheme.typography.bodySmall.copy(color = LanternTextSecondary)
-              )
-            }
-          }
-
-          Switch(
-            checked = hasAi,
-            onCheckedChange = { viewModel.collabManager.toggleAiAssistant() },
-            colors = SwitchDefaults.colors(
-              checkedThumbColor = LanternCyan,
-              checkedTrackColor = LanternCyan.copy(alpha = 0.3f)
-            ),
-            modifier = Modifier.testTag("toggle_ai_team_switch")
-          )
-        }
-      }
-    }
-
-    item {
-      // Connected Peers Header & Actions
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Text(
-          text = "Active Team Peers (${room?.peers?.size ?: 0})",
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontWeight = FontWeight.Bold,
-            color = LanternTextPrimary
-          )
-        )
-
-        Button(
-          onClick = { showAddPeerDialog = true },
-          colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
-          shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.testTag("add_teammate_button")
-        ) {
-          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-          Spacer(modifier = Modifier.width(4.dp))
-          Text("Invite Member", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-      }
-    }
-
-    val peers = room?.peers ?: emptyList()
-    items(peers) { peer ->
-      PeerCard(
-        peer = peer,
-        onRemove = { viewModel.collabManager.removePeer(peer.id) }
-      )
-    }
-
-    item {
-      Spacer(modifier = Modifier.height(32.dp))
     }
   }
 
-  if (showAddPeerDialog) {
-    AddPeerDialog(
-      onDismiss = { showAddPeerDialog = false },
-      onAdd = { name, role ->
-        viewModel.collabManager.addPeer(name, role, isAi = false)
-        showAddPeerDialog = false
-      }
+  // DIALOGS
+
+  // 1. Join With Pairing Code Dialog
+  if (showJoinPairingDialog) {
+    var inputCode by remember { mutableStateOf("") }
+    AlertDialog(
+      onDismissRequest = { showJoinPairingDialog = false },
+      title = { Text("Connect to Global Team", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text("Enter the 6-8 character team pairing code (e.g., LANT-8821):", fontSize = 12.sp, color = LanternTextSecondary)
+          OutlinedTextField(
+            value = inputCode,
+            onValueChange = { inputCode = it.uppercase() },
+            placeholder = { Text("LANT-XXXX") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("pairing_code_input_field"),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LanternNeonGreen)
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            if (inputCode.isNotBlank()) {
+              viewModel.connectWithPairingCode(inputCode)
+              showJoinPairingDialog = false
+            }
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
+          modifier = Modifier.testTag("confirm_join_pair_button")
+        ) {
+          Text("Connect", fontWeight = FontWeight.Bold)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showJoinPairingDialog = false }) { Text("Cancel") }
+      },
+      containerColor = LanternObsidianCard
     )
   }
 
+  // 2. Attach Code Reference Dialog
+  if (showAttachRefDialog) {
+    var selectedFile by remember { mutableStateOf(activeFile ?: projectFiles.firstOrNull()) }
+    var selectedLine by remember { mutableIntStateOf(1) }
+    val fileLines = selectedFile?.content?.lines() ?: emptyList()
+
+    AlertDialog(
+      onDismissRequest = { showAttachRefDialog = false },
+      title = { Text("Reference Code in Chat", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Text("Pick file and line to reference in team message:", fontSize = 12.sp, color = LanternTextSecondary)
+
+          // File selector pills
+          LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(projectFiles) { f ->
+              val isSel = f.id == selectedFile?.id
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(6.dp))
+                  .background(if (isSel) LanternCyan.copy(alpha = 0.2f) else LanternObsidianBorder)
+                  .border(1.dp, if (isSel) LanternCyan else Color.Transparent, RoundedCornerShape(6.dp))
+                  .clickable {
+                    selectedFile = f
+                    selectedLine = 1
+                  }
+                  .padding(horizontal = 8.dp, vertical = 4.dp)
+              ) {
+                Text(f.name, fontSize = 11.sp, color = if (isSel) LanternCyan else LanternTextSecondary)
+              }
+            }
+          }
+
+          // Line number input
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Line Number:", fontSize = 12.sp, color = LanternTextMuted)
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedTextField(
+              value = selectedLine.toString(),
+              onValueChange = { str ->
+                val num = str.filter { it.isDigit() }.toIntOrNull() ?: 1
+                selectedLine = num.coerceIn(1, maxOf(1, fileLines.size))
+              },
+              singleLine = true,
+              modifier = Modifier.width(80.dp).height(48.dp).testTag("ref_line_number_input")
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("of ${fileLines.size}", fontSize = 11.sp, color = LanternTextMuted)
+          }
+
+          // Snippet preview of that exact line
+          val snippet = fileLines.getOrNull(selectedLine - 1)?.trim() ?: "(Empty line)"
+          Text("Line content preview:", fontSize = 11.sp, color = LanternTextMuted)
+          Text(
+            text = snippet,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            color = LanternBrightGreen,
+            modifier = Modifier
+              .fillMaxWidth()
+              .clip(RoundedCornerShape(6.dp))
+              .background(Color.Black)
+              .padding(8.dp)
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            if (selectedFile != null) {
+              val snippet = fileLines.getOrNull(selectedLine - 1)?.trim() ?: ""
+              attachedCodeRef = CodeReference(
+                filePath = selectedFile!!.path,
+                fileName = selectedFile!!.name,
+                lineNumber = selectedLine,
+                lineSnippet = snippet
+              )
+              showAttachRefDialog = false
+            }
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
+          modifier = Modifier.testTag("confirm_attach_ref_button")
+        ) {
+          Text("Attach to Message", fontWeight = FontWeight.Bold)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showAttachRefDialog = false }) { Text("Cancel") }
+      },
+      containerColor = LanternObsidianCard
+    )
+  }
+
+  // 3. Diffs Modal
+  if (showDiffsModal) {
+    AlertDialog(
+      onDismissRequest = { showDiffsModal = false },
+      title = { Text("Database Recorded Diffs", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+      text = {
+        Column(
+          modifier = Modifier.fillMaxWidth().height(260.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(diffRecords) { d ->
+              Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clickable { selectedDiffForPreview = d }
+              ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                  ) {
+                    Text(d.filePath, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = LanternCyan)
+                    Text(d.summary, fontSize = 11.sp, color = LanternNeonGreen)
+                  }
+                  Text("Disk: ${d.diskPath}", fontSize = 9.sp, color = LanternTextMuted, fontFamily = FontFamily.Monospace)
+                }
+              }
+            }
+          }
+        }
+      },
+      confirmButton = {
+        Button(onClick = { showDiffsModal = false }) { Text("Close") }
+      },
+      containerColor = LanternObsidianCard
+    )
+  }
+
+  // 4. QR Code Dialog
   if (showQrModal) {
     QrCodePreviewDialog(
-      link = room?.inviteLink ?: "lantern://join?room=mesh",
+      link = serverUrl,
       onDismiss = { showQrModal = false }
     )
   }
-}
-
-@Composable
-fun InviteLinkItem(
-  title: String,
-  subtitle: String,
-  link: String,
-  icon: androidx.compose.ui.graphics.vector.ImageVector,
-  iconTint: Color,
-  onCopy: () -> Unit
-) {
-  Row(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(8.dp))
-      .background(MaterialTheme.colorScheme.background)
-      .padding(10.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.SpaceBetween
-  ) {
-    Row(
-      modifier = Modifier.weight(1f),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-      Spacer(modifier = Modifier.width(10.dp))
-      Column {
-        Text(title, fontWeight = FontWeight.SemiBold, color = LanternTextPrimary, fontSize = 12.sp)
-        Text(
-          text = link,
-          fontFamily = FontFamily.Monospace,
-          fontSize = 11.sp,
-          color = iconTint,
-          maxLines = 1
-        )
-      }
-    }
-
-    IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-      Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = LanternTextSecondary, modifier = Modifier.size(16.dp))
-    }
-  }
-}
-
-@Composable
-fun PeerCard(
-  peer: Peer,
-  onRemove: () -> Unit
-) {
-  Card(
-    modifier = Modifier.fillMaxWidth(),
-    colors = CardDefaults.cardColors(containerColor = LanternObsidianCard),
-    shape = RoundedCornerShape(12.dp)
-  ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(12.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-          modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(Color(peer.colorHex).copy(alpha = 0.2f)),
-          contentAlignment = Alignment.Center
-        ) {
-          Icon(
-            imageVector = if (peer.isAi) Icons.Default.AutoAwesome else Icons.Default.Person,
-            contentDescription = null,
-            tint = Color(peer.colorHex),
-            modifier = Modifier.size(20.dp)
-          )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-              text = peer.name,
-              fontWeight = FontWeight.Bold,
-              color = LanternTextPrimary,
-              fontSize = 14.sp
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Box(
-              modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color(peer.colorHex).copy(alpha = 0.15f))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-              Text(
-                text = peer.role,
-                fontSize = 9.sp,
-                color = Color(peer.colorHex),
-                fontWeight = FontWeight.Bold
-              )
-            }
-          }
-
-          Text(
-            text = "Editing: ${peer.activeFile} | Ping: ${peer.pingMs}ms",
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = LanternTextMuted
-          )
-        }
-      }
-
-      if (peer.role != "Host") {
-        IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-          Icon(Icons.Default.Delete, contentDescription = "Remove peer", tint = LanternTextMuted, modifier = Modifier.size(16.dp))
-        }
-      }
-    }
-  }
-}
-
-@Composable
-fun AddPeerDialog(
-  onDismiss: () -> Unit,
-  onAdd: (name: String, role: String) -> Unit
-) {
-  var name by remember { mutableStateOf("") }
-  var role by remember { mutableStateOf("Core Developer") }
-
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text("Add Peer to Workspace", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
-          value = name,
-          onValueChange = { name = it },
-          label = { Text("Teammate Name / Handle") },
-          placeholder = { Text("e.g. Alex (Frontend)") },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth().testTag("teammate_name_input")
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          listOf("Core Developer", "Reviewer", "Observer").forEach { r ->
-            Box(
-              modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (role == r) LanternNeonGreen else LanternObsidianBorder)
-                .clickable { role = r }
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-              Text(
-                text = r,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (role == r) Color(0xFF003D1A) else LanternTextPrimary
-              )
-            }
-          }
-        }
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = { if (name.isNotBlank()) onAdd(name.trim(), role) },
-        colors = ButtonDefaults.buttonColors(containerColor = LanternNeonGreen, contentColor = Color(0xFF003D1A)),
-        modifier = Modifier.testTag("confirm_add_teammate_button")
-      ) {
-        Text("Add to Mesh", fontWeight = FontWeight.Bold)
-      }
-    },
-    dismissButton = {
-      TextButton(onClick = onDismiss) { Text("Cancel", color = LanternTextSecondary) }
-    },
-    containerColor = LanternObsidianCard
-  )
 }
 
 @Composable
@@ -755,7 +912,7 @@ fun QrCodePreviewDialog(
 ) {
   AlertDialog(
     onDismissRequest = onDismiss,
-    title = { Text("Scan to Join Room", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
+    title = { Text("Scan to Join / Open Web IDE", color = LanternTextPrimary, fontWeight = FontWeight.Bold) },
     text = {
       Column(
         modifier = Modifier.fillMaxWidth(),

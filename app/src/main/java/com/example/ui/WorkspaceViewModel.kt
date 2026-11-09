@@ -25,12 +25,20 @@ import com.example.testdeploy.DeploymentPackage
 import com.example.testdeploy.DeploymentPlatform
 import com.example.testdeploy.TestAndDeploymentRunner
 import com.example.testdeploy.TestSuiteSummary
+import com.example.collab.CodeReference
+import com.example.collab.FirebaseWebRtcSignalingEngine
+import com.example.data.LanternDiskStorage
+import com.example.data.entity.GitBlameEntity
+import com.example.data.entity.GitDiffEntity
+import com.example.server.LanternLocalWebServer
 import com.example.data.ProjectTemplate
+import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -42,6 +50,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
   val aiEngine = AiEngine()
 
   private var projectFilesJob: Job? = null
+  private var commitsJob: Job? = null
 
   val allProjects: StateFlow<List<ProjectEntity>> = repository.allProjects
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -61,7 +70,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
   private val _openTabs = MutableStateFlow<List<ProjectFileEntity>>(emptyList())
   val openTabs: StateFlow<List<ProjectFileEntity>> = _openTabs.asStateFlow()
 
-  val commits: StateFlow<List<GitCommitEntity>> = MutableStateFlow(emptyList())
+  private val _commits = MutableStateFlow<List<GitCommitEntity>>(emptyList())
+  val commits: StateFlow<List<GitCommitEntity>> = _commits.asStateFlow()
 
   val roomState: StateFlow<WebRtcRoom?> = collabManager.roomState
   val gitStatus: StateFlow<GitRepoStatus> = gitManager.gitStatus
@@ -93,11 +103,46 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
   private val _userMessage = MutableStateFlow<String?>(null)
   val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
 
+  val signalingEngine = FirebaseWebRtcSignalingEngine(application)
+  private var webServer: LanternLocalWebServer? = null
+
+  private val _isServerRunning = MutableStateFlow(false)
+  val isServerRunning: StateFlow<Boolean> = _isServerRunning.asStateFlow()
+
+  private val _serverUrl = MutableStateFlow("http://${LanternLocalWebServer.getLocalIpAddress()}:8080")
+  val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
+
+  private val _pairingCode = MutableStateFlow(signalingEngine.generatePairingCode())
+  val pairingCode: StateFlow<String> = _pairingCode.asStateFlow()
+
+  private val _targetScrollLine = MutableStateFlow<Int?>(null)
+  val targetScrollLine: StateFlow<Int?> = _targetScrollLine.asStateFlow()
+
+  private val _diffRecords = MutableStateFlow<List<GitDiffEntity>>(emptyList())
+  val diffRecords: StateFlow<List<GitDiffEntity>> = _diffRecords.asStateFlow()
+
+  private val _blameRecords = MutableStateFlow<List<GitBlameEntity>>(emptyList())
+  val blameRecords: StateFlow<List<GitBlameEntity>> = _blameRecords.asStateFlow()
+
+  private var diffsJob: Job? = null
+  private var blameJob: Job? = null
+
   init {
     viewModelScope.launch {
       repository.seedSampleProjectIfEmpty()
-      // Create initial WebRTC collaboration room for the host
-      collabManager.createRoom("Neon-Mesh-01", "Mobile Lead")
+      // Create initial WebRTC collaboration room for the host with pairing code
+      val initialRoom = collabManager.createRoom("Neon-Mesh-01", "Mobile Lead")
+      _pairingCode.value = initialRoom.pairingCode
+
+      // Initialize NanoHTTPD local web server for LAN web code studio
+      webServer = LanternLocalWebServer(
+        port = 8080,
+        context = application,
+        repository = repository,
+        db = database,
+        scope = viewModelScope
+      )
+
       // Pre-select first deployment target
       _deploymentPackage.value = TestAndDeploymentRunner.generateDeployment(DeploymentPlatform.ANDROID_APK, "NeonLantern-Core")
       // Check for saved or pre-loaded GitHub dev account
@@ -119,6 +164,15 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     _activeFile.value = null
     _editorContent.value = ""
 
+    webServer?.setActiveProject(project, _pairingCode.value)
+
+    diffsJob?.cancel()
+    diffsJob = viewModelScope.launch {
+      repository.getDiffsForProject(project.id).collect {
+        _diffRecords.value = it
+      }
+    }
+
     projectFilesJob?.cancel()
     projectFilesJob = viewModelScope.launch {
       repository.getFilesForProject(project.id).collect { files ->
@@ -137,6 +191,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
       }
     }
+
+    commitsJob?.cancel()
+    commitsJob = viewModelScope.launch {
+      repository.getCommitsForProject(project.id).collect { list ->
+        _commits.value = list
+      }
+    }
   }
 
   fun openFile(file: ProjectFileEntity) {
@@ -145,6 +206,12 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     val currentTabs = _openTabs.value
     if (!currentTabs.any { it.id == file.id }) {
       _openTabs.value = currentTabs + file
+    }
+    blameJob?.cancel()
+    blameJob = viewModelScope.launch {
+      repository.getBlameForFile(file.id).collect {
+        _blameRecords.value = it
+      }
     }
   }
 
@@ -168,12 +235,66 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
 
   fun saveCurrentFile() {
     val current = _activeFile.value ?: return
+    val project = _selectedProject.value ?: return
+    val oldContent = current.content
+    val newContent = _editorContent.value
     viewModelScope.launch {
-      val updated = current.copy(content = _editorContent.value, isModified = false)
+      val updated = current.copy(content = newContent, isModified = false)
       repository.updateFile(updated)
       _activeFile.value = updated
       _openTabs.value = _openTabs.value.map { if (it.id == updated.id) updated else it }
-      showMessage("File saved: ${current.name}")
+
+      // Save to /home/LANtern/projects/{projectName}/
+      val allFiles = repository.getFilesForProject(project.id).first()
+      LanternDiskStorage.saveProjectToDisk(getApplication(), project, allFiles)
+
+      // Record diff and blame in database and /home/LANtern/.diffs/{diff-id}/
+      LanternDiskStorage.recordDiffAndBlame(
+        context = getApplication(),
+        db = database,
+        project = project,
+        file = updated,
+        oldContent = oldContent,
+        newContent = newContent,
+        commitHash = "save-" + System.currentTimeMillis().toString().takeLast(6),
+        author = "Mobile Lead"
+      )
+
+      showMessage("Saved ${current.name} & synced to /home/LANtern/projects/${project.name}")
+    }
+  }
+
+  fun closeAllTabs() {
+    _openTabs.value = emptyList()
+    _activeFile.value = null
+    _editorContent.value = ""
+    showMessage("Closed all open files")
+  }
+
+  fun saveAllFiles() {
+    viewModelScope.launch {
+      val tabs = _openTabs.value
+      for (file in tabs) {
+        if (file.isModified) {
+          val contentToSave = if (file.id == _activeFile.value?.id) _editorContent.value else file.content
+          val updated = file.copy(content = contentToSave, isModified = false)
+          repository.updateFile(updated)
+        }
+      }
+      _activeFile.value = _activeFile.value?.copy(isModified = false)
+      _openTabs.value = _openTabs.value.map { it.copy(isModified = false) }
+      showMessage("Saved all open files")
+    }
+  }
+
+  fun formatCurrentDocument() {
+    val current = _editorContent.value
+    if (current.isNotBlank()) {
+      val formatted = current.lines().joinToString("\n") { line ->
+        if (line.trim().isEmpty()) "" else line.trimEnd()
+      }
+      updateEditorContent(formatted)
+      showMessage("Formatted document")
     }
   }
 
@@ -198,6 +319,24 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
       openFile(newFile)
       showMessage("Created $name in studio")
     }
+  }
+
+  fun deleteFile(file: ProjectFileEntity) {
+    viewModelScope.launch {
+      repository.deleteFile(file.id)
+      closeTab(file)
+      showMessage("Deleted '${file.name}' from workspace")
+    }
+  }
+
+  fun switchBranch(branch: String) {
+    gitManager.switchBranch(branch)
+    showMessage("Switched branch to '$branch'")
+  }
+
+  fun createBranch(branch: String) {
+    gitManager.createBranch(branch)
+    showMessage("Created branch '$branch'")
   }
 
   private fun generateStarterCodeForFile(name: String, language: String): String {
@@ -358,6 +497,15 @@ fun main() {
   fun commitGitChanges(message: String) {
     val proj = _selectedProject.value ?: return
     viewModelScope.launch {
+      val modified = _projectFiles.value.filter { it.isModified }
+      for (f in modified) {
+        val contentToSave = if (f.id == _activeFile.value?.id) _editorContent.value else f.content
+        val updated = f.copy(content = contentToSave, isModified = false)
+        repository.updateFile(updated)
+      }
+      _activeFile.value = _activeFile.value?.copy(isModified = false)
+      _openTabs.value = _openTabs.value.map { it.copy(isModified = false) }
+
       val result = gitManager.commitChanges(proj.id, message)
       showMessage(result)
     }
@@ -432,5 +580,119 @@ fun main() {
   fun selectDeploymentPlatform(platform: DeploymentPlatform) {
     val projName = _selectedProject.value?.name ?: "LANtern-Project"
     _deploymentPackage.value = TestAndDeploymentRunner.generateDeployment(platform, projName)
+  }
+
+  fun startLocalWebServer() {
+    try {
+      if (webServer?.isAlive != true) {
+        val proj = _selectedProject.value ?: allProjects.value.firstOrNull()
+        if (proj != null) {
+          webServer?.setActiveProject(proj, _pairingCode.value)
+        }
+        webServer?.start()
+        _isServerRunning.value = true
+        _serverUrl.value = "http://${LanternLocalWebServer.getLocalIpAddress()}:${webServer?.listeningPort ?: 8080}"
+        showMessage("Web Code Studio live on ${_serverUrl.value}")
+      }
+    } catch (e: Exception) {
+      showMessage("Server error: ${e.message}")
+    }
+  }
+
+  fun stopLocalWebServer() {
+    try {
+      webServer?.stop()
+      _isServerRunning.value = false
+      showMessage("Web Code Studio server stopped")
+    } catch (e: Exception) {
+      showMessage("Server stop error: ${e.message}")
+    }
+  }
+
+  fun toggleLocalWebServer() {
+    if (_isServerRunning.value) {
+      stopLocalWebServer()
+    } else {
+      startLocalWebServer()
+    }
+  }
+
+  fun exportProjectToDisk() {
+    val project = _selectedProject.value ?: return
+    viewModelScope.launch {
+      val files = repository.getFilesForProject(project.id).first()
+      val dir = LanternDiskStorage.saveProjectToDisk(getApplication(), project, files)
+      showMessage("Exported ${files.size} files to ${dir.absolutePath}")
+    }
+  }
+
+  fun connectWithPairingCode(code: String, userName: String = "Mobile Dev") {
+    val clean = code.trim().uppercase()
+    if (clean.isBlank()) return
+    _pairingCode.value = clean
+    collabManager.connectWithPairingCode(clean, userName)
+    showMessage("Connected to team room via pairing code: $clean")
+  }
+
+  fun sendChatMessageWithReference(
+    text: String,
+    senderName: String = "Mobile Dev",
+    file: ProjectFileEntity? = null,
+    lineNumber: Int = 0,
+    snippet: String = ""
+  ) {
+    val codeRef = if (file != null && lineNumber > 0) {
+      CodeReference(
+        filePath = file.path,
+        fileName = file.name,
+        lineNumber = lineNumber,
+        lineSnippet = snippet.ifBlank {
+          file.content.lines().getOrNull(lineNumber - 1)?.trim() ?: ""
+        }
+      )
+    } else null
+
+    collabManager.sendChatMessage(text, senderName, codeRef)
+
+    // Also persist in local Room database
+    val roomId = _selectedProject.value?.let { "room-${it.id}" } ?: "global-room"
+    viewModelScope.launch {
+      database.teamChatMessageDao().insertMessage(
+        com.example.data.entity.TeamChatMessageEntity(
+          messageId = "msg-" + System.currentTimeMillis(),
+          roomId = roomId,
+          senderId = "mobile-lead",
+          senderName = senderName,
+          text = text,
+          hasCodeReference = codeRef != null,
+          referencedFilePath = codeRef?.filePath ?: "",
+          referencedLineNumber = codeRef?.lineNumber ?: 0,
+          referencedCodeSnippet = codeRef?.lineSnippet ?: "",
+          timestamp = System.currentTimeMillis()
+        )
+      )
+    }
+  }
+
+  fun navigateToCodeReference(filePath: String, lineNumber: Int) {
+    val file = _projectFiles.value.firstOrNull { it.path == filePath || it.name == filePath }
+    if (file != null) {
+      openFile(file)
+      _targetScrollLine.value = lineNumber
+      showMessage("Jumped to ${file.name} : Line $lineNumber")
+    } else {
+      showMessage("Referenced file $filePath not found in workspace")
+    }
+  }
+
+  fun clearTargetScrollLine() {
+    _targetScrollLine.value = null
+  }
+
+  override fun onCleared() {
+    super.onCleared()
+    try {
+      webServer?.stop()
+    } catch (_: Exception) {}
   }
 }

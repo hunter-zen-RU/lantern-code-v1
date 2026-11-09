@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
+import com.example.ui.screens.GitDashboardScreen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -70,6 +72,7 @@ import androidx.compose.foundation.layout.isImeVisible
 enum class NavDestination(val label: String, val icon: ImageVector) {
   WORKSPACES("Workspaces", Icons.Default.Folder),
   STUDIO("Studio", Icons.Default.Code),
+  GIT("Git", Icons.Default.Difference),
   TERMINAL("Terminal", Icons.Default.Terminal),
   COLLAB("Mesh P2P", Icons.Default.Lan),
   DATABASE("SQLite", Icons.Default.Storage),
@@ -112,12 +115,12 @@ fun MainAppScreen(
           modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
           contentAlignment = Alignment.Center
         ) {
           NavigationBar(
             modifier = Modifier
-              .widthIn(max = 380.dp)
+              .widthIn(max = 420.dp)
               .clip(RoundedCornerShape(32.dp))
               .border(1.dp, LanternObsidianBorder, RoundedCornerShape(32.dp))
               .testTag("main_bottom_nav_bar"),
@@ -167,14 +170,24 @@ fun MainAppScreen(
           CodeEditorScreen(
             viewModel = viewModel,
             onNavigateToAudit = { currentTab = NavDestination.AUDIT_TEST },
-            onNavigateToCollab = { currentTab = NavDestination.COLLAB }
+            onNavigateToCollab = { currentTab = NavDestination.COLLAB },
+            onNavigateToGit = { currentTab = NavDestination.GIT }
+          )
+        }
+        NavDestination.GIT -> {
+          GitDashboardScreen(
+            viewModel = viewModel,
+            onNavigateToEditor = { currentTab = NavDestination.STUDIO }
           )
         }
         NavDestination.TERMINAL -> {
           TerminalConsoleScreen(viewModel = viewModel)
         }
         NavDestination.COLLAB -> {
-          CollaborationScreen(viewModel = viewModel)
+          CollaborationScreen(
+            viewModel = viewModel,
+            onNavigateToEditor = { _, _ -> currentTab = NavDestination.STUDIO }
+          )
         }
         NavDestination.DATABASE -> {
           DatabaseStudioScreen(viewModel = viewModel)

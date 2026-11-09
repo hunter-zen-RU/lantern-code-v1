@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "WebRtcRoom": {
+      "title": "WebRtcRoom",
+      "description": "Collaborative WebRTC room metadata and session negotiation for peer-to-peer coding",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string" },
+        "name": { "type": "string" },
+        "hostUid": { "type": "string" },
+        "hostName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "activeFileName": { "type": "string" },
+        "activeContent": { "type": "string" },
+        "offerSdp": { "type": "string" },
+        "offerType": { "type": "string" },
+        "answerSdp": { "type": "string" },
+        "answerType": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "name", "hostUid", "status"]
+    },
+    "IceCandidate": {
+      "title": "IceCandidate",
+      "description": "ICE candidate trickles exchanged between WebRTC peers for peer connection",
+      "type": "object",
+      "properties": {
+        "senderUid": { "type": "string" },
+        "sdpMid": { "type": "string" },
+        "sdpMLineIndex": { "type": "integer" },
+        "candidate": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderUid", "candidate"]
+    },
+    "RoomPeer": {
+      "title": "RoomPeer",
+      "description": "Active collaborator peer presence and remote cursor coordinates",
+      "type": "object",
+      "properties": {
+        "peerUid": { "type": "string" },
+        "peerName": { "type": "string" },
+        "role": { "type": "string", "enum": ["Host", "Editor", "Viewer"] },
+        "cursorLine": { "type": "integer" },
+        "cursorCol": { "type": "integer" },
+        "status": { "type": "string", "enum": ["online", "idle", "offline"] },
+        "lastPing": { "type": "string", "format": "date-time" }
+      },
+      "required": ["peerUid", "peerName", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": "WebRtcRoom",
+      "description": "Collection of collaborative WebRTC rooms"
+    },
+    "/rooms/{roomId}/candidates/{candidateId}": {
+      "schema": "IceCandidate",
+      "description": "Subcollection of ICE candidates for WebRTC signaling"
+    },
+    "/rooms/{roomId}/peers/{peerUid}": {
+      "schema": "RoomPeer",
+      "description": "Subcollection of active peers in the collaborative room"
+    }
+  }
+}

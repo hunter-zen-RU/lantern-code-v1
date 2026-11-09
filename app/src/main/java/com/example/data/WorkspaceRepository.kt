@@ -43,6 +43,12 @@ class WorkspaceRepository(private val database: LanternDatabase) {
   fun getSessionsForRoom(roomId: String): Flow<List<PeerSessionEntity>> =
     database.peerSessionDao().getSessionsForRoom(roomId)
 
+  fun getDiffsForProject(projectId: Long): Flow<List<com.example.data.entity.GitDiffEntity>> =
+    database.gitDiffDao().getDiffsForProject(projectId)
+
+  fun getBlameForFile(fileId: Long): Flow<List<com.example.data.entity.GitBlameEntity>> =
+    database.gitBlameDao().getBlameForFile(fileId)
+
   suspend fun createProject(
     name: String,
     description: String,
