@@ -41,10 +41,12 @@ googleServices = "4.5.0"
 credentials = "1.5.0"
 googleid = "1.1.1"
 nanohttpd = "2.3.1"
+termuxTerminal = "0.118.0"
 
 
 [libraries]
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
+termux-terminal-view = { group = "com.github.termux", name = "terminal-view", version.ref = "termuxTerminal" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

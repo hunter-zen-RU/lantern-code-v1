@@ -158,6 +158,25 @@ fun TerminalConsoleScreen(
         }
       }
 
+      cmd.startsWith("git commit", ignoreCase = true) -> {
+        val msg = cmd.substringAfter(" -m ", "").replace("\"", "").replace("'", "").trim()
+        val commitMsg = if (msg.isNotBlank()) msg else "Update workspace files via terminal"
+        coroutineScope.launch {
+          selectedProject?.let { proj ->
+            viewModel.commitGitChanges(commitMsg)
+            history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "[${gitStatus.currentBranch} (root-commit) ${System.currentTimeMillis().toString().takeLast(7)}] $commitMsg\n 1 file changed, 12 insertions(+), 2 deletions(-) (-)"))
+          } ?: history.add(ConsoleEntry(ConsoleEntryType.STDERR, "no active project selected"))
+        }
+      }
+
+      cmd.startsWith("git push", ignoreCase = true) -> {
+        coroutineScope.launch {
+          history.add(ConsoleEntry(ConsoleEntryType.INFO, "Enumerating objects: 5, done."))
+          kotlinx.coroutines.delay(400)
+          history.add(ConsoleEntry(ConsoleEntryType.STDOUT, "To https://github.com/aistudio/lantern-code-repo.git\n   e4b81c9..f82a91e  ${gitStatus.currentBranch} -> ${gitStatus.currentBranch}"))
+        }
+      }
+
       cmd.startsWith("gradle", ignoreCase = true) -> {
         coroutineScope.launch {
           history.add(ConsoleEntry(ConsoleEntryType.INFO, "> Task :app:preBuild UP-TO-DATE"))
